@@ -47,7 +47,7 @@ const store = {
   Items: []
 };
 
-let SHEET_ID = localStorage.getItem('sheetId') || '';
+let SHEET_ID = localStorage.getItem('sheetId') || '1ca3kuS_ZHjzcDrkwcCjXvN9Cx04j-AGi0lmRvov9XJ8';
 let SHEET_KIND = localStorage.getItem('sheetKind') || '';
 let displayedHash = null;
 let savedHash = null;
