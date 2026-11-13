@@ -1,0 +1,147 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#6b1e2e">
+  <title>Dashboard Currently Down | Albaseerah</title>
+
+  <style>
+    :root {
+      --maroon: #6b1e2e;
+      --background: #faf7f5;
+      --text: #1a1614;
+      --muted: #6b625e;
+      --yellow: #ffcc00;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "DM Sans", Arial, sans-serif;
+      background: var(--background);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      width: 100%;
+      padding: 20px 32px;
+      background: var(--maroon);
+      color: white;
+    }
+
+    .brand {
+      max-width: 1100px;
+      margin: 0 auto;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      padding: 48px 24px;
+    }
+
+    .warning {
+      width: 82px;
+      height: 74px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 16px;
+      color: var(--maroon);
+      font-size: clamp(26px, 4vw, 36px);
+      line-height: 1.25;
+      font-weight: 700;
+    }
+
+    p {
+      max-width: 480px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.7;
+    }
+
+    footer {
+      padding: 18px 24px;
+      text-align: center;
+      border-top: 1px solid #e8dedb;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.5px;
+    }
+
+    @media (max-width: 480px) {
+      header {
+        padding: 18px 20px;
+      }
+
+      main {
+        padding: 32px 22px;
+      }
+
+      .warning {
+        width: 72px;
+        height: 65px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <div class="brand">ALBASEERAH</div>
+  </header>
+
+  <main>
+    <svg
+      class="warning"
+      viewBox="0 0 100 90"
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label="Caution"
+    >
+      <path
+        d="M43 8 Q50 -1 57 8 L96 75 Q100 84 89 85 H11 Q0 84 4 75 Z"
+        fill="#ffcc00"
+        stroke="#6b1e2e"
+        stroke-width="3.5"
+        stroke-linejoin="round"
+      />
+      <path
+        d="M50 28 V54"
+        stroke="#222222"
+        stroke-width="7"
+        stroke-linecap="round"
+      />
+      <circle cx="50" cy="68" r="4" fill="#222222" />
+    </svg>
+
+    <h1>Dashboard Currently Down</h1>
+
+    <p>
+      The dashboard is currently under development.
+      Please check back later.
+    </p>
+  </main>
+
+  <footer>
+    ALBASEERAH &middot; DASHBOARD
+  </footer>
+</body>
+</html>
