@@ -263,7 +263,6 @@ select, input { font-family: inherit; }
 .big-subject { font-family: 'Lora', serif; font-size: calc(1.75rem * var(--font-scale)); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--acc-700); text-align: right; }
 .filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-bottom: 1.5rem; padding: 0.875rem 1rem; background: var(--surface); border: 0.0625rem solid var(--line); border-radius: var(--r-card); }
 .filter-bar .search { flex: 1; min-width: 12rem; width: auto; max-width: 20rem; }
-.filter-bar select { padding-top: 0.5rem; padding-bottom: 0.5rem; }
 .fb-sep { width: 0.0625rem; align-self: stretch; background: var(--line-strong); margin: 0 0.25rem; }
 
 .hero {
@@ -425,20 +424,28 @@ select, input { font-family: inherit; }
 .field.inline { flex-direction: row; align-items: center; justify-content: space-between; }
 .field label { font-size: calc(0.84375rem * var(--font-scale)); font-weight: 600; color: var(--ink-700); }
 select {
-  appearance: none; -webkit-appearance: none;
+  appearance: none;
+  -webkit-appearance: none;
   background-color: var(--surface);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1l5 5 5-5' fill='none' stroke='%238f8683' stroke-width='1.6' stroke-linecap='round'/></svg>");
-  background-repeat: no-repeat; background-position: right 0.875rem center; background-size: 0.75rem 0.5rem;
+  background-repeat: no-repeat;
+  background-position: right 0.875rem center;
+  background-size: 0.75rem 0.5rem;
   color: var(--ink-900);
-  border: 0.0625rem solid var(--line-strong); border-radius: var(--r-ctl);
-  padding: 0.625rem 2.375rem 0.625rem 0.875rem; font-size: calc(0.875rem * var(--font-scale));
-  outline: none; transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  border: 0.0625rem solid var(--line-strong);
+  border-radius: var(--r-ctl);
+  padding: 0.625rem 2.375rem 0.625rem 0.875rem;
+  font-size: calc(0.875rem * var(--font-scale));
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  min-height: 2.75rem;
+  line-height: 1.4;
 }
 select option { background-color: var(--surface); color: var(--ink-900); }
 select:hover { border-color: var(--acc-700); }
 select:focus { border-color: var(--acc-500); box-shadow: 0 0 0 0.1875rem var(--acc-100); }
 .modal select { width: 100%; min-height: 2.75rem; }
-.filter-bar select { min-height: 2.5rem; cursor: pointer; }
+.filter-bar select { min-height: 2.75rem; padding-top: 0.5625rem; padding-bottom: 0.5625rem; }
 .switch { position: relative; width: 2.875rem; height: 1.625rem; display: inline-block; }
 .switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; inset: 0; background: var(--ink-200); border-radius: var(--r-pill); cursor: pointer; transition: background 0.25s ease; }
@@ -694,28 +701,4 @@ kbd { font-family: inherit; font-size: calc(0.75rem * var(--font-scale)); paddin
 }
 @media (max-width: 560px) {
   .student-grid { grid-template-columns: 1fr; }
-}
-.row.lit {
-  background: var(--acc-50);
-  border-left: 0.1875rem solid var(--acc-700);
-  padding-left: 0.5rem;
-  border-radius: var(--r-ctl);
-}
-.student-card.lit {
-  border-color: var(--acc-500);
-  box-shadow: 0 0 0 0.125rem var(--acc-200), 0 0.625rem 1.5rem rgba(107, 30, 46, 0.18);
-}
-.period-badge {
-  margin-left: 0.5rem;
-  font-size: calc(0.75rem * var(--font-scale));
-  font-weight: 600;
-  padding: 0.1875rem 0.5rem;
-  border-radius: var(--r-pill);
-  background: var(--acc-100);
-  color: var(--acc-700);
-}
-.sb-period {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
 }
