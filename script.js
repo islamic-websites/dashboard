@@ -1,28 +1,16 @@
 const DEFAULT_PFP = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#f5e6ea"/><circle cx="48" cy="38" r="17" fill="#9c3452" fill-opacity="0.55"/><path d="M14 96c0-20 15-34 34-34s34 14 34 34z" fill="#9c3452" fill-opacity="0.55"/></svg>');
 const CONTACT_ORDER = ['Mother', 'Father', 'Grandmother', 'Grandfather', 'Uncle', 'Aunt', 'Uncle 2', 'Aunt 2'];
-const TOTAL_SCHOOL_DAYS = 40;
 const FONT_SCALES = { small: 0.85, default: 1, large: 1.15 };
 const POLL_INTERVAL = 60000;
-
-// ── Updated sheet definitions ──────────────────────────────────────────────
-const SHEET_TABS = ['Students', 'Teachers', 'Contacts', 'Attendance', 'Periods', 'Grades', 'Items'];
-
-// Periods now requires tier, period_no, subject and teacher_id
-const REQUIRED = {
-  Students: 'first_name',
-  Teachers: 'name',
-  Contacts: 'relation',
-  Attendance: 'status',
-  Periods: 'tier',          // ← back to original
-  Grades: 'letter',
-  Items: 'max_score'
-};
+const DEFAULT_SHEET_ID = '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
+const SHEET_TABS = ['Students', 'Teachers', 'Contacts', 'Records', 'Periods', 'Grades', 'Items'];
+const REQUIRED = { Students: 'first_name', Teachers: 'name', Periods: 'tier', Grades: 'letter', Items: 'max_score' };
 
 const NUMERIC = {
   Students: ['id', 'grade', 'has_hifz'],
   Teachers: ['id'],
   Contacts: ['id', 'student_id'],
-  Attendance: ['id', 'student_id'],
+  Records: ['id', 'student_id'],
   Periods: ['id', 'period_no', 'teacher_id'],
   Grades: ['id', 'student_id', 'percent'],
   Items: ['id', 'student_id', 'score', 'max_score']
@@ -33,7 +21,7 @@ const SETTINGS_INDEX = [
   { label: 'View mode', tab: 'general', id: 'viewMode', keys: 'grid list layout' },
   { label: 'Density', tab: 'general', id: 'densityRange', keys: 'spacing compact comfortable padding gap slider' },
   { label: 'Show guardian contacts', tab: 'general', id: 'contactsToggle', keys: 'guardian contacts parents phone layout' },
-  { label: 'Show attendance chart', tab: 'general', id: 'attendanceToggle', keys: 'attendance pie donut chart layout' },
+  { label: 'Show records', tab: 'general', id: 'recordsToggle', keys: 'records nurse office visits history' },
   { label: 'Dark mode', tab: 'appearance', id: 'darkToggle', keys: 'dark night theme light' },
   { label: 'Follow system theme', tab: 'appearance', id: 'systemToggle', keys: 'system automatic auto theme os' },
   { label: 'Accent color', tab: 'appearance', id: 'accentSelect', keys: 'maroon gold blue green color' },
@@ -50,13 +38,14 @@ const store = {
   Students: [],
   Teachers: [],
   Contacts: [],
-  Attendance: [],
+  Records: [],
   Periods: [],
   Grades: [],
   Items: []
 };
 
-let SHEET_ID = localStorage.getItem('sheetId') || '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
+let DATA_SOURCE = localStorage.getItem('dataSource') || 'sheet';
+let SHEET_ID = DATA_SOURCE === 'xlsx' ? '' : localStorage.getItem('activeSheetId') || DEFAULT_SHEET_ID;
 let displayedHash = null;
 let savedHash = null;
 let students = [];
@@ -100,7 +89,7 @@ let fontFamily = localStorage.getItem('fontFamily') || 'DM Sans';
 let patternOn = flag('patternOn', false);
 let reduceMotion = flag('reduceMotion', false);
 let showContacts = flag('showContacts', true);
-let showAttendance = flag('showAttendance', true);
+let showRecords = flag('showRecords', flag('showAttendance', true));
 
 const $ = id => document.getElementById(id);
 
@@ -182,7 +171,7 @@ function applyAppearance() {
   $('patternToggle').checked = patternOn;
   $('motionToggle').checked = reduceMotion;
   $('contactsToggle').checked = showContacts;
-  $('attendanceToggle').checked = showAttendance;
+  $('recordsToggle').checked = showRecords;
 }
 
 function parseCSV(text) {
@@ -226,10 +215,24 @@ function parseCSV(text) {
   return rows.filter(r => r.length > 1 || r[0] !== '');
 }
 
+function normalizeHeader(value) {
+  const key = String(value == null ? '' : value).trim().toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+  const aliases = {
+    student: 'student_name', studentid: 'student_id', student_no: 'student_id', student_number: 'student_id', school_student_id: 'student_id',
+    name_of_student: 'student_name', student_full_name: 'student_name', date_time: 'datetime', date_and_time: 'datetime', visit_datetime: 'datetime', event_datetime: 'datetime',
+    date_of_visit: 'date', visit_date: 'date', record_date: 'date', event_date: 'date', time_of_visit: 'time', visit_time: 'time',
+    location_of_visit: 'location', visit_location: 'location', location_department: 'location', department_location: 'location', office_or_nurse: 'location', nurse_office: 'location',
+    reason_for_visit: 'reason', visit_reason: 'reason', purpose: 'reason', record_type: 'type', event_type: 'type', type_of_visit: 'type', record_category: 'type', category: 'type', event: 'type',
+    detail: 'description', details: 'description', description_of_visit: 'description', what_happened: 'description', staff_member: 'staff', recorded_by: 'staff', logged_by: 'staff', created_by: 'staff',
+    phone_number: 'phone', e_mail: 'email', zip_code: 'zip'
+  };
+  return aliases[key] || key;
+}
+
 function rowsToObjects(values) {
-  if (!values.length) return [];
-  const headers = values[0].map(h => String(h).trim());
-  return values.slice(1).map(r => {
+  if (!values || !values.length) return [];
+  const headers = values[0].map(normalizeHeader);
+  return values.slice(1).filter(r => r.some(v => String(v == null ? '' : v).trim() !== '')).map(r => {
     const o = {};
     headers.forEach((h, i) => { o[h] = r[i] === undefined ? '' : r[i]; });
     return o;
@@ -241,20 +244,82 @@ function normalize(tab, rows) {
   return rows.map(r => {
     cols.forEach(c => {
       const v = r[c];
-      r[c] = v === '' || v == null ? 0 : Number(v);
+      if (v === '' || v == null) r[c] = 0;
+      else if (typeof v === 'boolean') r[c] = v ? 1 : 0;
+      else {
+        const raw = String(v).trim();
+        if (/^(true|yes|y)$/i.test(raw)) r[c] = 1;
+        else if (/^(false|no|n)$/i.test(raw)) r[c] = 0;
+        else {
+          const parsed = Number(raw.replace(/,/g, '').replace(/%$/, ''));
+          r[c] = Number.isFinite(parsed) ? parsed : v;
+        }
+      }
     });
     return r;
   });
 }
 
+function hasColumn(rows, name) {
+  return Boolean(rows && rows.length && rows[0].some(h => normalizeHeader(h) === name));
+}
+
+function isContactSheet(rows) {
+  return hasColumn(rows, 'relation') && (hasColumn(rows, 'student_id') || hasColumn(rows, 'student_name'));
+}
+
+function isRecordSheet(rows) {
+  if (!rows || !rows.length) return false;
+  const linked = hasColumn(rows, 'student_id') || hasColumn(rows, 'student_name') || (hasColumn(rows, 'first_name') && hasColumn(rows, 'last_name'));
+  const detail = ['date', 'time', 'datetime', 'timestamp', 'created_at', 'location', 'reason', 'type', 'status', 'description', 'notes', 'title', 'action', 'day'].some(k => hasColumn(rows, k));
+  return linked && detail;
+}
+
+function inlineContacts(studentRows) {
+  const fields = [
+    ['Mother', 'mother_name', 'mother_phone'], ['Father', 'father_name', 'father_phone'],
+    ['Grandmother', 'grandmother_name', 'grandmother_phone'], ['Grandfather', 'grandfather_name', 'grandfather_phone'],
+    ['Uncle', 'uncle_name', 'uncle_phone'], ['Aunt', 'aunt_name', 'aunt_phone'],
+    ['Uncle 2', 'uncle2_name', 'uncle2_phone'], ['Aunt 2', 'aunt2_name', 'aunt2_phone']
+  ];
+  const result = [];
+  studentRows.forEach(s => fields.forEach(([relation, nameKey, phoneKey]) => {
+    const name = String(s[nameKey] == null ? '' : s[nameKey]).trim();
+    if (!name || /^(n\/?a|none|null|-)$/i.test(name)) return;
+    const phone = String(s[phoneKey] == null ? '' : s[phoneKey]).trim();
+    result.push({ id: result.length + 1, student_id: Number(s.id), relation, name, phone: /^(n\/?a|none|null|-)$/i.test(phone) ? '' : phone });
+  }));
+  return result;
+}
+
+function resolveLinkedStudentId(row, allStudents) {
+  const rawId = row.student_id;
+  if (rawId !== '' && rawId != null && Number.isFinite(Number(rawId)) && Number(rawId) > 0) return Number(rawId);
+  const name = String(row.student_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  if (!name) return 0;
+  if (/^\d+$/.test(name)) return Number(name);
+  const found = allStudents.find(s => (String(s.first_name) + ' ' + String(s.last_name)).trim().toLowerCase().replace(/\s+/g, ' ') === name);
+  return found ? Number(found.id) : 0;
+}
+
 function dataFromRows(rowsByTab) {
+  const source = rowsByTab || {};
   const next = {};
-  SHEET_TABS.forEach(t => {
-    const rows = rowsByTab[t];
-    const ok = rows && rows.length && rows[0].map(h => String(h).trim()).includes(REQUIRED[t]);
-    if (!ok) throw new Error('The ' + t + ' tab is missing or has the wrong columns.');
+  const studentsRows = source.Students || [];
+  if (!hasColumn(studentsRows, REQUIRED.Students)) throw new Error('The Students tab is missing or has the wrong columns.');
+  next.Students = normalize('Students', rowsToObjects(studentsRows));
+  ['Teachers', 'Periods', 'Grades', 'Items'].forEach(t => {
+    const rows = source[t] || [];
+    if (!hasColumn(rows, REQUIRED[t])) throw new Error('The ' + t + ' tab is missing or has the wrong columns.');
     next[t] = normalize(t, rowsToObjects(rows));
   });
+  const contactRows = source.Contacts || [];
+  if (isContactSheet(contactRows)) {
+    next.Contacts = normalize('Contacts', rowsToObjects(contactRows)).map(c => ({ ...c, student_id: resolveLinkedStudentId(c, next.Students) })).filter(c => c.student_id > 0 && c.relation && c.name);
+  } else next.Contacts = [];
+  if (!next.Contacts.length) next.Contacts = inlineContacts(next.Students);
+  const recordRows = source.Records && source.Records.length ? source.Records : source.Attendance || [];
+  next.Records = isRecordSheet(recordRows) ? normalize('Records', rowsToObjects(recordRows)).map(r => ({ ...r, student_id: resolveLinkedStudentId(r, next.Students) })) : [];
   return next;
 }
 
@@ -273,33 +338,51 @@ function hashAll(texts) {
 }
 
 async function fetchCsv(id, tab) {
-  const res = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`);
+  const url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent(tab);
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Could not read the ' + tab + ' tab.');
-  return await res.text();
+  const text = await res.text();
+  if (!text.trim() || /^\s*</.test(text) || /"status"\s*:\s*"error"/i.test(text)) throw new Error('Could not read the ' + tab + ' tab.');
+  return text;
 }
 
 async function fetchSheetTexts(id) {
   const texts = {};
-  for (const t of SHEET_TABS) texts[t] = await fetchCsv(id, t);
+  for (const t of ['Students', 'Teachers', 'Periods', 'Grades', 'Items']) texts[t] = await fetchCsv(id, t);
+  try { texts.Contacts = await fetchCsv(id, 'Contacts'); } catch (err) { texts.Contacts = ''; }
+  try { texts.Records = await fetchCsv(id, 'Records'); } catch (err) {
+    try { texts.Records = await fetchCsv(id, 'Attendance'); } catch (fallbackErr) { texts.Records = ''; }
+  }
   return texts;
 }
 
 function parseTexts(texts) {
   const rows = {};
-  SHEET_TABS.forEach(t => { rows[t] = parseCSV(texts[t]); });
+  SHEET_TABS.forEach(t => { rows[t] = parseCSV(texts[t] || ''); });
   return rows;
 }
-
 function saveCache(rowsByTab, hash, id) {
   try {
     localStorage.setItem('sheetData', JSON.stringify(rowsByTab));
     localStorage.setItem('sheetHash', hash);
-    if (id) localStorage.setItem('sheetId', id);
-    else localStorage.removeItem('sheetId');
+    localStorage.setItem('sheetCacheId', id || '');
+    if (id) {
+      localStorage.setItem('activeSheetId', id);
+      localStorage.setItem('dataSource', 'sheet');
+      DATA_SOURCE = 'sheet';
+    } else {
+      localStorage.removeItem('activeSheetId');
+      localStorage.setItem('dataSource', 'xlsx');
+      DATA_SOURCE = 'xlsx';
+    }
   } catch (e) {
     localStorage.removeItem('sheetData');
     localStorage.removeItem('sheetHash');
-    if (id) localStorage.setItem('sheetId', id);
+    localStorage.setItem('sheetCacheId', id || '');
+    localStorage.setItem('dataSource', id ? 'sheet' : 'xlsx');
+    DATA_SOURCE = id ? 'sheet' : 'xlsx';
+    if (id) localStorage.setItem('activeSheetId', id);
+    else localStorage.removeItem('activeSheetId');
   }
 }
 
@@ -308,6 +391,7 @@ function loadCache() {
     const raw = localStorage.getItem('sheetData');
     const hash = localStorage.getItem('sheetHash');
     if (!raw || !hash) return null;
+    if (DATA_SOURCE !== 'xlsx' && localStorage.getItem('sheetCacheId') !== SHEET_ID) return null;
     return { data: dataFromRows(JSON.parse(raw)), hash: hash };
   } catch (e) {
     return null;
@@ -328,13 +412,14 @@ async function loadFromSheet(id) {
   const hash = hashAll(texts);
   adopt(next);
   saveCache(rows, hash, id);
-  SHEET_ID = id;
-  displayedHash = hash;
+    SHEET_ID = id;
+    DATA_SOURCE = 'sheet';
+    displayedHash = hash;
   savedHash = hash;
 }
 
 async function checkForUpdates() {
-  if (!SHEET_ID) return;
+  if (!SHEET_ID || DATA_SOURCE === 'xlsx') return;
   try {
     const texts = await fetchSheetTexts(SHEET_ID);
     const hash = hashAll(texts);
@@ -370,13 +455,14 @@ async function importXlsx(file) {
     const wb = XLSX.read(buf, { type: 'array' });
     const rows = {};
     SHEET_TABS.forEach(t => {
-      const ws = wb.Sheets[t];
+      const ws = t === 'Records' ? (wb.Sheets.Records || wb.Sheets.Attendance) : wb.Sheets[t];
       rows[t] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) : [];
     });
     const next = dataFromRows(rows);
     adopt(next);
     saveCache(rows, 'xlsx', '');
     SHEET_ID = '';
+    DATA_SOURCE = 'xlsx';
     displayedHash = 'xlsx';
     savedHash = 'xlsx';
     closeSettings();
@@ -518,6 +604,7 @@ function showEmpty() {
   $('studentGrid').className = 'student-grid';
   $('studentGrid').innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-question"></i><h3>No data found</h3><div class="source-grid"><div class="source-card"><h4><i class="fa-solid fa-table"></i> Google Sheet Link</h4><input class="text-input" type="text" id="emptyLink" placeholder="https://docs.google.com/spreadsheets/d/..." autocomplete="off"><button class="btn" type="button" id="emptyConnect"><i class="fa-solid fa-plug"></i> Connect</button></div><div class="source-card drop-zone" id="dropZone"><h4><i class="fa-solid fa-file-excel"></i> Excel workbook</h4><span>Drop .xlsx here</span><button class="btn ghost" type="button" id="emptyPick"><i class="fa-solid fa-file-import"></i> Choose file</button></div></div></div>';
   showView('list', 'Students');
+  $('emptyLink').value = SHEET_ID || DEFAULT_SHEET_ID;
   $('emptyConnect').onclick = () => connectSheet($('emptyLink').value);
   $('emptyPick').onclick = () => $('xlsxInput').click();
   const dz = $('dropZone');
@@ -717,25 +804,72 @@ function wheel(grades) {
   return `<svg class="wheel" viewBox="0 0 400 400"><defs>${defs}</defs><g mask="url(#wheelMask)">${body}</g>${center}</svg>`;
 }
 
+function recordValue(record, keys) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value == null) continue;
+    const text = String(value).trim();
+    if (text && !/^(n\/?a|none|null|-)$/i.test(text)) return text;
+  }
+  return '';
+}
+
+function recordMatchesStudent(record, student) {
+  const rawId = record.student_id;
+  if (rawId != null && String(rawId).trim() !== '' && Number.isFinite(Number(rawId)) && Number(rawId) > 0) return Number(rawId) === Number(student.id);
+  let name = recordValue(record, ['student_name', 'student_full_name', 'student']);
+  if (!name) name = [record.first_name, record.last_name].filter(Boolean).join(' ').trim();
+  if (!name) return false;
+  if (/^\d+$/.test(name)) return Number(name) === Number(student.id);
+  const clean = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ');
+  return clean(name) === clean(student.first_name + ' ' + student.last_name);
+}
+
+function recordRawDate(record) {
+  return recordValue(record, ['datetime', 'timestamp', 'visit_datetime', 'created_at', 'submitted_at', 'date', 'record_date', 'visit_date', 'day']);
+}
+
+function recordTimestamp(record) {
+  const raw = recordRawDate(record);
+  if (!raw) return 0;
+  const time = recordValue(record, ['time', 'visit_time', 'check_in_time', 'time_of_visit']);
+  const withTime = time && !/[T ]\d{1,2}:\d{2}/.test(raw) ? raw + ' ' + time : raw;
+  const parsed = Date.parse(withTime);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function formatRecordWhen(record) {
+  const raw = recordRawDate(record);
+  const time = recordValue(record, ['time', 'visit_time', 'check_in_time', 'time_of_visit']);
+  if (!raw) return time || 'Date not provided';
+  const dayOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const date = new Date(dayOnly ? raw + 'T12:00:00' : raw);
+  const dateText = Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  let embeddedTime = '';
+  if (!dayOnly && /[T ]\d{1,2}:\d{2}/.test(raw)) {
+    const timeDate = new Date(raw);
+    if (!Number.isNaN(timeDate.getTime())) embeddedTime = timeDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+  return [dateText, time || embeddedTime].filter(Boolean).join(' · ');
+}
+
+function renderRecord(record) {
+  const location = recordValue(record, ['location', 'place', 'department', 'office', 'room']);
+  const type = recordValue(record, ['type', 'event_type', 'record_type', 'category', 'status', 'action']);
+  const title = location || type || recordValue(record, ['title', 'subject']) || 'Student record';
+  const reason = recordValue(record, ['reason', 'description', 'details', 'notes', 'what_happened', 'summary', 'comments', 'purpose']);
+  const staff = recordValue(record, ['staff', 'recorded_by', 'logged_by', 'created_by', 'staff_member', 'nurse', 'office_staff']);
+  const secondary = type && type.toLowerCase() !== title.toLowerCase() ? '<span class="record-kind">' + esc(type) + '</span>' : '';
+  return '<article class="record-entry"><div class="record-entry-top"><div class="record-title-wrap"><strong class="record-title">' + esc(title) + '</strong>' + secondary + '</div><time class="record-when">' + esc(formatRecordWhen(record)) + '</time></div>' + (reason ? '<p class="record-description">' + esc(reason) + '</p>' : '') + (staff ? '<div class="record-staff">Recorded by ' + esc(staff) + '</div>' : '') + '</article>';
+}
+
 function openStudent(id) {
   const s = students.find(x => x.id === id);
   if (!s) return;
   currentId = id;
   currentSubject = null;
 
-  let absent = 0;
-  let tardy = 0;
-  store.Attendance.forEach(r => {
-    if (r.student_id !== id) return;
-    if (r.status === 'Absent') absent++;
-    if (r.status === 'Tardy') tardy++;
-  });
-  const attended = Math.max(0, TOTAL_SCHOOL_DAYS - absent - tardy);
-  const attSegs = [
-    { label: 'Attended', v: attended, color: 'var(--green)' },
-    { label: 'Tardy', v: tardy, color: 'var(--amber)' },
-    { label: 'Absent', v: absent, color: 'var(--red)' }
-  ];
+  const records = store.Records.filter(r => recordMatchesStudent(r, s)).sort((a, b) => recordTimestamp(b) - recordTimestamp(a) || (Number(b.id) || 0) - (Number(a.id) || 0));
 
   const tier = s.grade <= 4 ? 'primary' : s.grade <= 8 ? 'middle' : 'upper';
   const tm = teacherMap();
@@ -765,7 +899,8 @@ function openStudent(id) {
   const code = studentCode(s);
   fabData = { email: s.email, phone: phone, code: code };
 
-  const attCard = showAttendance ? `<div class="card popout g-att"><h3><i class="fa-solid fa-calendar-check"></i> Attendance</h3><div class="att-wrap">${ring(attSegs, 15.9155, 6)}${legend(attSegs)}</div></div>` : '';
+  const recordsContent = records.length ? records.map(renderRecord).join('') : '<div class="records-empty"><i class="fa-regular fa-clipboard"></i><span>No records have been added for this student.</span></div>';
+  const recordsCard = showRecords ? `<div class="card popout g-records"><h3><i class="fa-solid fa-clipboard-list"></i> Records <span class="record-count">${records.length}</span></h3><div class="records-list">${recordsContent}</div></div>` : '';
   const contCard = showContacts ? `<div class="card popout g-cont"><h3><i class="fa-solid fa-people-roof"></i> Guardian contacts</h3>${contacts}</div>` : '';
 
   $('profileView').innerHTML = `
@@ -784,8 +919,8 @@ function openStudent(id) {
       </div>
       <a class="email-pill" href="${gmailLink(s.email)}" target="_blank" rel="noopener"><i class="fa-regular fa-envelope"></i><span>${esc(s.email)}</span></a>
     </div>
-    <div class="profile-grid${showAttendance ? '' : ' no-att'}${showContacts ? '' : ' no-cont'}">
-      ${attCard}
+    <div class="profile-grid${showRecords ? '' : ' no-records'}${showContacts ? '' : ' no-cont'}">
+      ${recordsCard}
       <div class="card popout g-wheel wheel-card">
         <h3><i class="fa-solid fa-chart-pie"></i> Grades</h3>
         ${wheel(grades)}
@@ -1339,9 +1474,9 @@ function bindEvents() {
     save('showContacts', showContacts);
     refreshProfile();
   });
-  bindSetting('attendanceToggle', 'change', t => {
-    showAttendance = t.checked;
-    save('showAttendance', showAttendance);
+  bindSetting('recordsToggle', 'change', t => {
+    showRecords = t.checked;
+    save('showRecords', showRecords);
     refreshProfile();
   });
   bindSetting('darkToggle', 'change', t => {
@@ -1388,7 +1523,7 @@ function bindEvents() {
     if (systemTheme) applyAppearance();
   });
 
-  $('sheetLink').value = SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : '';
+  $('sheetLink').value = SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit`;
   $('connectBtn').addEventListener('click', () => connectSheet($('sheetLink').value));
   $('xlsxBtn').addEventListener('click', () => $('xlsxInput').click());
   $('xlsxInput').addEventListener('change', e => {
