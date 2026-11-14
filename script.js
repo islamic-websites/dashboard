@@ -3,8 +3,21 @@ const CONTACT_ORDER = ['Mother', 'Father', 'Grandmother', 'Grandfather', 'Uncle'
 const TOTAL_SCHOOL_DAYS = 40;
 const FONT_SCALES = { small: 0.85, default: 1, large: 1.15 };
 const POLL_INTERVAL = 60000;
+
+// ── Updated sheet definitions ──────────────────────────────────────────────
 const SHEET_TABS = ['Students', 'Teachers', 'Contacts', 'Attendance', 'Periods', 'Grades', 'Items'];
-const REQUIRED = { Students: 'first_name', Teachers: 'name', Contacts: 'relation', Attendance: 'status', Periods: 'tier', Grades: 'letter', Items: 'max_score' };
+
+// Periods now requires tier, period_no, subject and teacher_id
+const REQUIRED = {
+  Students: 'first_name',
+  Teachers: 'name',
+  Contacts: 'relation',
+  Attendance: 'status',
+  Periods: 'tier',          // ← back to original
+  Grades: 'letter',
+  Items: 'max_score'
+};
+
 const NUMERIC = {
   Students: ['id', 'grade', 'has_hifz'],
   Teachers: ['id'],
@@ -14,6 +27,7 @@ const NUMERIC = {
   Grades: ['id', 'student_id', 'percent'],
   Items: ['id', 'student_id', 'score', 'max_score']
 };
+
 const SETTINGS_INDEX = [
   { label: 'Grade format', tab: 'general', id: 'gradeFormat', keys: 'fraction percentage letter score' },
   { label: 'View mode', tab: 'general', id: 'viewMode', keys: 'grid list layout' },
@@ -32,11 +46,6 @@ const SETTINGS_INDEX = [
   { label: 'Import .xlsx', tab: 'advanced', id: 'xlsxBtn', keys: 'excel workbook import file upload' }
 ];
 
-const DAY_START_MIN = 8 * 60;
-const PERIOD_MIN = 40;
-const PASS_MIN = 5;
-const NUM_PERIODS = 9;
-
 const store = {
   Students: [],
   Teachers: [],
@@ -47,8 +56,7 @@ const store = {
   Items: []
 };
 
-let SHEET_ID = localStorage.getItem('sheetId') || '1ca3kuS_ZHjzcDrkwcCjXvN9Cx04j-AGi0lmRvov9XJ8';
-let SHEET_KIND = localStorage.getItem('sheetKind') || '';
+let SHEET_ID = localStorage.getItem('sheetId') || '';
 let displayedHash = null;
 let savedHash = null;
 let students = [];
@@ -74,8 +82,6 @@ let dirGrade = 'all';
 let dirLetter = 'all';
 let dirPerf = 'all';
 let dirSort = 'name';
-let currentPeriod = 0;
-let periodTimer = null;
 
 const flag = (k, d) => {
   const v = localStorage.getItem(k);
@@ -101,6 +107,7 @@ const $ = id => document.getElementById(id);
 function esc(v) {
   return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
 function gradeName(n) {
   n = Number(n);
   if (n === 1) return '1st grade';
@@ -108,18 +115,22 @@ function gradeName(n) {
   if (n === 3) return '3rd grade';
   return `${n}th grade`;
 }
+
 function letterOf(p) {
   return p >= 97 ? 'A+' : p >= 93 ? 'A' : p >= 90 ? 'A-' : p >= 87 ? 'B+' : p >= 83 ? 'B' : p >= 80 ? 'B-' : p >= 77 ? 'C+' : p >= 73 ? 'C' : p >= 70 ? 'C-' : 'D';
 }
+
 function fmtScore(score, max) {
   const pct = max ? (score / max) * 100 : 0;
   if (gradeFormat === 'percentage') return `${Math.round(pct)}%`;
   if (gradeFormat === 'letter') return letterOf(pct);
   return `${score}/${max}`;
 }
+
 function shortDate(d) {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
+
 function toast(msg) {
   const t = $('toast');
   t.innerHTML = `<span>${esc(msg)}</span><i class="toast-bar"></i>`;
@@ -129,9 +140,11 @@ function toast(msg) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => t.classList.remove('show'), 3000);
 }
+
 function save(key, value) {
   localStorage.setItem(key, String(value));
 }
+
 function applyDensity() {
   const root = document.documentElement;
   const t = densityValue / 100;
@@ -143,6 +156,7 @@ function applyDensity() {
   root.style.setProperty('--col-min', r(12.5, 18.75));
   document.querySelectorAll('.student-grid').forEach(g => g.classList.toggle('tight', densityValue < 20));
 }
+
 function applyAppearance() {
   const root = document.documentElement;
   const dark = systemTheme ? window.matchMedia('(prefers-color-scheme: dark)').matches : isDarkMode;
@@ -211,17 +225,17 @@ function parseCSV(text) {
   }
   return rows.filter(r => r.length > 1 || r[0] !== '');
 }
+
 function rowsToObjects(values) {
   if (!values.length) return [];
   const headers = values[0].map(h => String(h).trim());
   return values.slice(1).map(r => {
     const o = {};
-    headers.forEach((h, i) => {
-      o[h] = r[i] === undefined ? '' : r[i];
-    });
+    headers.forEach((h, i) => { o[h] = r[i] === undefined ? '' : r[i]; });
     return o;
   });
 }
+
 function normalize(tab, rows) {
   const cols = NUMERIC[tab] || [];
   return rows.map(r => {
@@ -232,6 +246,7 @@ function normalize(tab, rows) {
     return r;
   });
 }
+
 function dataFromRows(rowsByTab) {
   const next = {};
   SHEET_TABS.forEach(t => {
@@ -242,113 +257,52 @@ function dataFromRows(rowsByTab) {
   });
   return next;
 }
+
 function adopt(next) {
-  SHEET_TABS.forEach(t => {
-    store[t] = next[t];
-  });
+  SHEET_TABS.forEach(t => { store[t] = next[t]; });
 }
+
 function hashText(t) {
   let h = 5381;
   for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
   return String(h >>> 0) + ':' + t.length;
 }
+
 function hashAll(texts) {
   return SHEET_TABS.map(t => hashText(texts[t])).join('|');
 }
-function inferKind(id) {
-  return String(id).startsWith('2PACX') ? 'published' : 'edit';
+
+async function fetchCsv(id, tab) {
+  const res = await fetch(`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(tab)}`);
+  if (!res.ok) throw new Error('Could not read the ' + tab + ' tab.');
+  return await res.text();
 }
-function extractSheetId(v) {
-  const s = String(v || '').trim();
-  if (!s) return '';
-  let m = s.match(/\/d\/e\/([a-zA-Z0-9_-]+)/);
-  if (m) {
-    SHEET_KIND = 'published';
-    return m[1];
-  }
-  m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (m) {
-    SHEET_KIND = 'edit';
-    return m[1];
-  }
-  if (/^2PACX-[a-zA-Z0-9_-]+$/.test(s)) {
-    SHEET_KIND = 'published';
-    return s;
-  }
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(s)) {
-    SHEET_KIND = 'edit';
-    return s;
-  }
-  return '';
-}
-function tabUrls(id, tab) {
-  const kind = SHEET_KIND || inferKind(id);
-  const s = encodeURIComponent(tab);
-  return kind === 'published'
-    ? [
-        `https://docs.google.com/spreadsheets/d/e/${id}/gviz/tq?tqx=out:csv&sheet=${s}`,
-        `https://docs.google.com/spreadsheets/d/e/${id}/pub?output=csv&sheet=${s}`
-      ]
-    : [`https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${s}`];
-}
-async function fetchTabCsv(id, tab) {
-  let last = null;
-  for (const url of tabUrls(id, tab)) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      const text = await res.text();
-      const head = text.slice(0, 400).toLowerCase();
-      if (head.includes('<!doctype html') || head.includes('<html')) throw new Error('Google returned a login page — sheet is not public');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      if (!text.trim()) throw new Error('Empty response');
-      return text;
-    } catch (e) {
-      last = e;
-    }
-  }
-  throw new Error(`Tab "${tab}": ${last ? last.message : 'unknown error'}`);
-}
+
 async function fetchSheetTexts(id) {
-  const results = await Promise.all(SHEET_TABS.map(async tab => {
-    try {
-      return { tab, text: await fetchTabCsv(id, tab) };
-    } catch (e) {
-      return { tab, error: e.message };
-    }
-  }));
-  const failed = results.filter(r => r.error);
-  if (failed.length) {
-    if (failed.length === results.length && failed.every(r => /login|public/i.test(r.error))) {
-      throw new Error('Sheet is not public. In Google Sheets: Share → Anyone with the link → Viewer.');
-    }
-    throw new Error(failed.map(r => r.error).join(' · '));
-  }
   const texts = {};
-  results.forEach(r => {
-    texts[r.tab] = r.text;
-  });
+  for (const t of SHEET_TABS) texts[t] = await fetchCsv(id, t);
   return texts;
 }
+
 function parseTexts(texts) {
   const rows = {};
-  SHEET_TABS.forEach(t => {
-    rows[t] = parseCSV(texts[t]);
-  });
+  SHEET_TABS.forEach(t => { rows[t] = parseCSV(texts[t]); });
   return rows;
 }
+
 function saveCache(rowsByTab, hash, id) {
   try {
     localStorage.setItem('sheetData', JSON.stringify(rowsByTab));
     localStorage.setItem('sheetHash', hash);
     if (id) localStorage.setItem('sheetId', id);
     else localStorage.removeItem('sheetId');
-    if (SHEET_KIND) localStorage.setItem('sheetKind', SHEET_KIND);
   } catch (e) {
     localStorage.removeItem('sheetData');
     localStorage.removeItem('sheetHash');
     if (id) localStorage.setItem('sheetId', id);
   }
 }
+
 function loadCache() {
   try {
     const raw = localStorage.getItem('sheetData');
@@ -359,9 +313,15 @@ function loadCache() {
     return null;
   }
 }
+
+function extractSheetId(v) {
+  const s = String(v).trim();
+  const m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
+}
+
 async function loadFromSheet(id) {
-  const kind = SHEET_KIND || inferKind(id);
-  SHEET_KIND = kind;
   const texts = await fetchSheetTexts(id);
   const rows = parseTexts(texts);
   const next = dataFromRows(rows);
@@ -369,10 +329,10 @@ async function loadFromSheet(id) {
   adopt(next);
   saveCache(rows, hash, id);
   SHEET_ID = id;
-  localStorage.setItem('sheetKind', kind);
   displayedHash = hash;
   savedHash = hash;
 }
+
 async function checkForUpdates() {
   if (!SHEET_ID) return;
   try {
@@ -386,8 +346,8 @@ async function checkForUpdates() {
     $('updateBanner').hidden = false;
   } catch (err) {}
 }
+
 async function connectSheet(link) {
-  SHEET_KIND = '';
   const id = extractSheetId(link);
   if (!id) {
     toast('Enter a valid Google Sheet link.');
@@ -400,9 +360,10 @@ async function connectSheet(link) {
     finishBoot();
     toast('Connected to Google Sheets.');
   } catch (err) {
-    toast(String(err.message || err));
+    toast('Could not load the sheet. Share it with anyone who has the link.');
   }
 }
+
 async function importXlsx(file) {
   try {
     const buf = await file.arrayBuffer();
@@ -416,8 +377,6 @@ async function importXlsx(file) {
     adopt(next);
     saveCache(rows, 'xlsx', '');
     SHEET_ID = '';
-    SHEET_KIND = '';
-    localStorage.removeItem('sheetKind');
     displayedHash = 'xlsx';
     savedHash = 'xlsx';
     closeSettings();
@@ -430,90 +389,48 @@ async function importXlsx(file) {
   }
 }
 
-function computeCurrentPeriod(now = new Date()) {
-  const day = now.getDay();
-  if (day === 0 || day === 6) return 0;
-  const mins = now.getHours() * 60 + now.getMinutes();
-  const slot = PERIOD_MIN + PASS_MIN;
-  const idx = Math.floor((mins - DAY_START_MIN) / slot) + 1;
-  return idx < 1 || idx > NUM_PERIODS ? 0 : idx;
-}
-function tierForGrade(g) {
-  return g <= 4 ? 'primary' : g <= 8 ? 'middle' : 'upper';
-}
-function subjectAtPeriod(tier, periodNo) {
-  const row = store.Periods.find(p => p.tier === tier && Number(p.period_no) === Number(periodNo));
-  return row ? row.subject : '';
-}
-function refreshCurrentPeriod() {
-  const prev = currentPeriod;
-  currentPeriod = computeCurrentPeriod();
-  if (prev !== currentPeriod) rerenderLiveState();
-  else rerenderLiveState();
-}
-function rerenderLiveState() {
-  const label = currentPeriod ? `Period ${currentPeriod}` : 'Outside periods';
-  const badge = $('periodBadge');
-  if (badge) badge.textContent = label;
-  const smart = $('smartBar');
-  if (smart) {
-    let existing = smart.querySelector('.sb-period');
-    if (smart.classList.contains('show')) {
-      if (!existing) {
-        existing = document.createElement('span');
-        existing.className = 'sb-period';
-        smart.appendChild(existing);
-      }
-      existing.innerHTML = `<i class="fa-solid fa-clock"></i>${label}`;
-    }
-  }
-  if (view === 'profile' && currentId != null) {
-    document.querySelectorAll('#profileView .row[data-period]').forEach(row => {
-      row.classList.toggle('lit', Number(row.dataset.period) === currentPeriod);
-    });
-  }
-  if (view === 'gradesDir') renderDir();
-}
-
 function teacherMap() {
   const m = {};
-  store.Teachers.forEach(t => {
-    m[t.id] = t;
-  });
+  store.Teachers.forEach(t => { m[t.id] = t; });
   return m;
 }
+
 function dirRows() {
   return store.Grades.filter(g => g.subject === dirSubject).map(g => {
     const s = students.find(x => x.id === g.student_id);
     return s ? { id: s.id, first_name: s.first_name, last_name: s.last_name, grade: s.grade, email: s.email, letter: g.letter, percent: g.percent } : null;
   }).filter(Boolean);
 }
+
 function computeEndYear() {
   let d = new Date();
   let max = '';
-  store.Items.forEach(it => {
-    if (it.day > max) max = it.day;
-  });
+  store.Items.forEach(it => { if (it.day > max) max = it.day; });
   if (max) d = new Date(max + 'T12:00:00');
   endYear = d.getFullYear() + (d.getMonth() >= 7 ? 1 : 0);
 }
+
 function initialNum(ch) {
   const c = String(ch || 'A').toUpperCase().charCodeAt(0);
   return ((((c - 65) % 9) + 9) % 9) + 1;
 }
+
 function studentCode(s) {
   const grad = endYear + 12 - s.grade;
   const join = endYear - 1 - (s.id % Math.max(1, s.grade));
   return '#' + String(grad).slice(-2) + initialNum(s.first_name[0]) + initialNum(s.last_name[0]) + String(join).slice(-2);
 }
+
 function gmailLink(email) {
   return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
 }
+
 function setActive(name) {
   $('navHome').classList.toggle('active', name === 'home');
   $('navDash').classList.toggle('active', name === 'dash');
   $('navGrades').classList.toggle('active', name === 'grades');
 }
+
 function checkSmart() {
   const bar = $('smartBar');
   if (!watchEl) {
@@ -522,21 +439,20 @@ function checkSmart() {
   }
   bar.classList.toggle('show', watchEl.getBoundingClientRect().bottom < $('topbar').getBoundingClientRect().bottom + 8);
 }
+
 function setSmart(html, el) {
   $('smartBar').innerHTML = html;
-  const span = document.createElement('span');
-  span.className = 'sb-period';
-  span.innerHTML = `<i class="fa-solid fa-clock"></i>${currentPeriod ? 'Period ' + currentPeriod : 'Outside periods'}`;
-  $('smartBar').appendChild(span);
   watchEl = el;
   checkSmart();
 }
+
 function navList() {
   if (view === 'profile') return { ids: students.map(s => s.id), cur: currentId };
   if (view === 'grades') return { ids: studentSubjects, cur: currentSubject };
   if (view === 'gradesDir') return { ids: allSubjects, cur: dirSubject };
   return null;
 }
+
 function updateEdges() {
   const n = navList();
   $('edgePrev').hidden = !n;
@@ -546,11 +462,10 @@ function updateEdges() {
   $('edgePrev').disabled = off;
   $('edgeNext').disabled = off;
 }
+
 function showView(name, title) {
   view = name;
-  ['list', 'profile', 'grades', 'gradesDir'].forEach(v => {
-    $(v + 'View').hidden = v !== name;
-  });
+  ['list', 'profile', 'grades', 'gradesDir'].forEach(v => { $(v + 'View').hidden = v !== name; });
   $('pageTitle').textContent = title;
   setActive(name === 'list' ? 'home' : name === 'profile' ? 'dash' : 'grades');
   $('topSearch').hidden = name === 'list';
@@ -559,8 +474,8 @@ function showView(name, title) {
   watchEl = null;
   $('smartBar').classList.remove('show');
   updateEdges();
-  if (name === 'profile') rerenderLiveState();
 }
+
 function swipe(dir, fn) {
   if (reduceMotion) {
     fn();
@@ -580,6 +495,7 @@ function swipe(dir, fn) {
     }, 520);
   }, 220);
 }
+
 function navigate(dir) {
   const n = navList();
   if (!n || swipeBusy) return;
@@ -593,6 +509,7 @@ function navigate(dir) {
     else openGradesDir(target);
   });
 }
+
 function showEmpty() {
   students = [];
   allSubjects = [];
@@ -604,10 +521,7 @@ function showEmpty() {
   $('emptyConnect').onclick = () => connectSheet($('emptyLink').value);
   $('emptyPick').onclick = () => $('xlsxInput').click();
   const dz = $('dropZone');
-  dz.ondragover = e => {
-    e.preventDefault();
-    dz.classList.add('over');
-  };
+  dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
   dz.ondragleave = () => dz.classList.remove('over');
   dz.ondrop = e => {
     e.preventDefault();
@@ -616,9 +530,11 @@ function showEmpty() {
     if (f) importXlsx(f);
   };
 }
+
 function buildSubnav() {
   $('subnavList').innerHTML = allSubjects.map(s => `<button type="button" class="subnav-item" data-subject="${esc(s)}">${esc(s)}</button>`).join('');
 }
+
 function finishBoot() {
   students = store.Students.slice().sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name) || a.id - b.id);
   allSubjects = Array.from(new Set(store.Grades.map(g => g.subject))).sort();
@@ -630,29 +546,33 @@ function finishBoot() {
   buildSubnav();
   goList();
 }
+
 function hideLoading() {
   const l = $('loadingScreen');
   l.classList.add('hide');
-  setTimeout(() => {
-    l.hidden = true;
-  }, 500);
+  setTimeout(() => { l.hidden = true; }, 500);
 }
+
 function gridClass() {
   return 'student-grid' + (viewMode === 'list' ? ' list-mode' : '') + (densityValue < 20 ? ' tight' : '');
 }
+
 function haystack(s) {
   return `${s.first_name} ${s.last_name} ${s.email} ${gradeName(s.grade)} ${s.grade} ${studentCode(s)}`.toLowerCase();
 }
+
 function matchTerm(s) {
   const term = searchTerm.trim().toLowerCase();
   if (!term) return true;
   return haystack(s).includes(term);
 }
+
 function gradeOptions() {
   let out = '<option value="all">All grades</option>';
   for (let n = 1; n <= 12; n++) out += `<option value="${n}">${gradeName(n)}</option>`;
   return out;
 }
+
 function sortStudents(list, mode) {
   const byName = (a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name);
   const arr = list.slice();
@@ -661,12 +581,14 @@ function sortStudents(list, mode) {
   else arr.sort(byName);
   return arr;
 }
+
 function syncSearch(v) {
   searchTerm = v;
   $('searchInput').value = v;
   $('homeSearch').value = v;
   rerenderCurrent();
 }
+
 function observeCards(grid) {
   if (observer) observer.disconnect();
   observer = new IntersectionObserver(entries => {
@@ -677,9 +599,7 @@ function observeCards(grid) {
         const d = n++ * 50;
         c.style.transitionDelay = d + 'ms';
         c.classList.add('in');
-        setTimeout(() => {
-          c.style.transitionDelay = '';
-        }, 700 + d);
+        setTimeout(() => { c.style.transitionDelay = ''; }, 700 + d);
       } else {
         c.style.transitionDelay = '';
         c.classList.remove('in');
@@ -688,6 +608,7 @@ function observeCards(grid) {
   }, { threshold: 0.05 });
   grid.querySelectorAll('.student-card').forEach(c => observer.observe(c));
 }
+
 function bindTilt(grid) {
   grid.addEventListener('mousemove', e => {
     if (reduceMotion) return;
@@ -706,9 +627,11 @@ function bindTilt(grid) {
     c.style.transform = '';
   });
 }
-function cardHtml(s, right, lit = false) {
-  return `<button type="button" class="student-card popout${lit ? ' lit' : ''}" data-id="${s.id}"><img class="sc-avatar" src="${DEFAULT_PFP}" alt=""><div class="sc-text"><span class="sc-name">${esc(s.first_name)} ${esc(s.last_name)}</span><span class="sc-sub">${gradeName(s.grade)} · ${esc(s.email)}</span></div><span class="pill">${right}</span></button>`;
+
+function cardHtml(s, right) {
+  return `<button type="button" class="student-card popout" data-id="${s.id}"><img class="sc-avatar" src="${DEFAULT_PFP}" alt=""><div class="sc-text"><span class="sc-name">${esc(s.first_name)} ${esc(s.last_name)}</span><span class="sc-sub">${gradeName(s.grade)} · ${esc(s.email)}</span></div><span class="pill">${right}</span></button>`;
 }
+
 function goList() {
   currentId = null;
   currentSubject = null;
@@ -720,15 +643,11 @@ function goList() {
   $('homeFilter').hidden = false;
   renderList();
 }
+
 function renderList() {
   const grid = $('studentGrid');
   grid.className = gridClass();
-  const list = sortStudents(
-    students.filter(matchTerm)
-      .filter(s => homeGrade === 'all' || s.grade === Number(homeGrade))
-      .filter(s => homeHifz === 'all' || (homeHifz === 'yes' ? !!s.has_hifz : !s.has_hifz)),
-    homeSort
-  );
+  const list = sortStudents(students.filter(matchTerm).filter(s => homeGrade === 'all' || s.grade === Number(homeGrade)).filter(s => homeHifz === 'all' || (homeHifz === 'yes' ? !!s.has_hifz : !s.has_hifz)), homeSort);
   if (observer) observer.disconnect();
   if (!list.length) {
     grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><h3>No matches</h3></div>';
@@ -737,6 +656,7 @@ function renderList() {
   grid.innerHTML = list.map(s => cardHtml(s, gradeName(s.grade))).join('');
   observeCards(grid);
 }
+
 function ring(segs, r, sw) {
   const C = 2 * Math.PI * r;
   const total = segs.reduce((a, s) => a + s.v, 0);
@@ -754,9 +674,11 @@ function ring(segs, r, sw) {
   }
   return out + '</svg>';
 }
+
 function legend(segs) {
   return '<div class="legend">' + segs.map(s => `<div class="legend-row"><span class="dot" style="background:${s.color}"></span>${s.label}<b>${s.v}</b></div>`).join('') + '</div>';
 }
+
 function wheel(grades) {
   const n = grades.length;
   if (!n) return '<svg class="wheel" viewBox="0 0 400 400"></svg>';
@@ -794,6 +716,7 @@ function wheel(grades) {
   const center = `<text class="wc-letter" x="200" y="204" text-anchor="middle" font-size="40">${letterOf(total)}</text><text class="wc-pct" x="200" y="228" text-anchor="middle" font-size="15">${total.toFixed(1)}%</text>`;
   return `<svg class="wheel" viewBox="0 0 400 400"><defs>${defs}</defs><g mask="url(#wheelMask)">${body}</g>${center}</svg>`;
 }
+
 function openStudent(id) {
   const s = students.find(x => x.id === id);
   if (!s) return;
@@ -814,24 +737,12 @@ function openStudent(id) {
     { label: 'Absent', v: absent, color: 'var(--red)' }
   ];
 
-  const tier = tierForGrade(s.grade);
+  const tier = s.grade <= 4 ? 'primary' : s.grade <= 8 ? 'middle' : 'upper';
   const tm = teacherMap();
-  const planFor = t => store.Periods
-    .filter(p => p.tier === t)
-    .sort((a, b) => a.period_no - b.period_no)
-    .map(p => ({
-      period_no: p.period_no,
-      subject: p.subject,
-      name: (tm[p.teacher_id] || {}).name || '',
-      role: (tm[p.teacher_id] || {}).role || ''
-    }));
+  const planFor = t => store.Periods.filter(p => p.tier === t).sort((a, b) => a.period_no - b.period_no).map(p => ({ period_no: p.period_no, subject: p.subject, name: (tm[p.teacher_id] || {}).name || '', role: (tm[p.teacher_id] || {}).role || '' }));
   let periods = planFor(tier);
   if (!periods.length) periods = planFor('upper');
-
-  const schedule = periods.map(p => {
-    const lit = Number(p.period_no) === currentPeriod ? ' lit' : '';
-    return `<div class="row${p.role === 'Monitor' ? ' mute' : ''}${lit}" data-period="${p.period_no}"><span class="p-no">Period ${p.period_no}</span><span class="p-sub">${esc(p.subject)}</span><span class="p-t">${esc(p.name)}</span></div>`;
-  }).join('');
+  const schedule = periods.map(p => `<div class="row${p.role === 'Monitor' ? ' mute' : ''}"><span class="p-no">Period ${p.period_no}</span><span class="p-sub">${esc(p.subject)}</span><span class="p-t">${esc(p.name)}</span></div>`).join('');
 
   let hifzRow = '';
   if (s.has_hifz) {
@@ -840,9 +751,7 @@ function openStudent(id) {
   }
 
   const contactMap = {};
-  store.Contacts.filter(c => c.student_id === id).forEach(c => {
-    contactMap[c.relation] = c;
-  });
+  store.Contacts.filter(c => c.student_id === id).forEach(c => { contactMap[c.relation] = c; });
   const contacts = CONTACT_ORDER.map(rel => {
     const c = contactMap[rel];
     return c
@@ -856,12 +765,8 @@ function openStudent(id) {
   const code = studentCode(s);
   fabData = { email: s.email, phone: phone, code: code };
 
-  const attCard = showAttendance
-    ? `<div class="card popout g-att"><h3><i class="fa-solid fa-calendar-check"></i> Attendance</h3><div class="att-wrap">${ring(attSegs, 15.9155, 6)}${legend(attSegs)}</div></div>`
-    : '';
-  const contCard = showContacts
-    ? `<div class="card popout g-cont"><h3><i class="fa-solid fa-people-roof"></i> Guardian contacts</h3>${contacts}</div>`
-    : '';
+  const attCard = showAttendance ? `<div class="card popout g-att"><h3><i class="fa-solid fa-calendar-check"></i> Attendance</h3><div class="att-wrap">${ring(attSegs, 15.9155, 6)}${legend(attSegs)}</div></div>` : '';
+  const contCard = showContacts ? `<div class="card popout g-cont"><h3><i class="fa-solid fa-people-roof"></i> Guardian contacts</h3>${contacts}</div>` : '';
 
   $('profileView').innerHTML = `
     <div class="detail-bar">
@@ -893,7 +798,7 @@ function openStudent(id) {
         <div class="addr-row"><span>Country</span><b>United States</b></div>
       </div>
       <div class="card popout g-sched">
-        <h3><i class="fa-solid fa-clock"></i> Daily schedule <span id="periodBadge" class="period-badge"></span></h3>
+        <h3><i class="fa-solid fa-clock"></i> Daily schedule</h3>
         ${schedule}${hifzRow}
       </div>
       ${contCard}
@@ -907,20 +812,22 @@ function openStudent(id) {
   $('profileView').querySelectorAll('.slice').forEach(g => {
     g.onclick = () => openGradesPage(id, g.dataset.subject);
   });
-  refreshCurrentPeriod();
 }
+
 function refreshProfile() {
   if (view !== 'profile' || currentId == null) return;
   const y = window.scrollY;
   openStudent(currentId);
   window.scrollTo(0, y);
 }
+
 function niceStep(range, target) {
   const raw = range / target;
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const f = raw / mag;
   return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
 }
+
 function buildChart(holder, items) {
   const W = 900, H = 380, yW = 58, xH = 32;
   const pL = yW, pR = W, pB = H - xH;
@@ -986,6 +893,7 @@ function buildChart(holder, items) {
     if (vy0 < Y0) { vy0 = Y0; vy1 = Y0 + h; }
     if (vy1 > Y1) { vy1 = Y1; vy0 = Y1 - h; }
   }
+
   function zoomAt(factor, ax, ay) {
     const full = X1 - X0;
     const cur = vx1 - vx0;
@@ -998,6 +906,7 @@ function buildChart(holder, items) {
     vy1 = vy0 + nh;
     clampView();
   }
+
   function render() {
     const ys = niceStep(vy1 - vy0, 6);
     const yt = [];
@@ -1007,8 +916,7 @@ function buildChart(holder, items) {
     for (let l = Math.ceil((vx0 + 1) / xs - 1e-9) * xs; l - 1 <= vx1 + 1e-9; l += xs) {
       if (l >= 1 && l <= n) xt.push(l);
     }
-    gridEl.innerHTML = yt.map(v => `<line class="grid-line" x1="${pL}" x2="${pR}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}"/>`).join('') +
-      xt.map(l => `<line class="grid-line" y1="0" y2="${pB}" x1="${sx(l - 1).toFixed(1)}" x2="${sx(l - 1).toFixed(1)}"/>`).join('');
+    gridEl.innerHTML = yt.map(v => `<line class="grid-line" x1="${pL}" x2="${pR}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}"/>`).join('') + xt.map(l => `<line class="grid-line" y1="0" y2="${pB}" x1="${sx(l - 1).toFixed(1)}" x2="${sx(l - 1).toFixed(1)}"/>`).join('');
     yEl.innerHTML = yt.map(v => `<text class="axis-text" font-size="11" x="${yW - 8}" y="${(sy(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join('');
     xEl.innerHTML = xt.map(l => `<text class="axis-text" font-size="11" x="${sx(l - 1).toFixed(1)}" y="${pB + 20}" text-anchor="middle">${l}</text>`).join('');
     let d = '';
@@ -1024,14 +932,17 @@ function buildChart(holder, items) {
     lineEl.setAttribute('d', d);
     areaEl.setAttribute('d', `${d}L${sx(n - 1).toFixed(1)} ${pB}L${sx(0).toFixed(1)} ${pB}Z`);
   }
+
   function toSvg(e) {
     const r = svg.getBoundingClientRect();
     return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
   }
+
   function hideTip() {
     tip.classList.remove('show');
     dots.forEach(p => p.setAttribute('r', 3.5));
   }
+
   svg.addEventListener('wheel', e => {
     const p = toSvg(e);
     if (p.x < pL || p.y > pB) return;
@@ -1040,6 +951,7 @@ function buildChart(holder, items) {
     render();
     hideTip();
   }, { passive: false });
+
   svg.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;
     const p = toSvg(e);
@@ -1049,6 +961,7 @@ function buildChart(holder, items) {
     svg.classList.add('dragging');
     hideTip();
   });
+
   svg.addEventListener('pointermove', e => {
     if (!drag) return;
     const p = toSvg(e);
@@ -1062,12 +975,14 @@ function buildChart(holder, items) {
     drag = p;
     render();
   });
+
   const endDrag = () => {
     drag = null;
     svg.classList.remove('dragging');
   };
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
+
   svg.addEventListener('mouseover', e => {
     const t = e.target.closest('.hover-target');
     if (!t || drag) return;
@@ -1079,21 +994,21 @@ function buildChart(holder, items) {
     tip.style.top = rect.top + window.scrollY + 'px';
     tip.classList.add('show');
   });
+
   svg.addEventListener('mouseout', e => {
     if (e.target.closest('.hover-target')) hideTip();
   });
+
   render();
 }
+
 function openGradesPage(studentId, subject) {
   const s = students.find(x => x.id === studentId);
   if (!s) return;
   currentId = studentId;
   currentSubject = subject;
   studentSubjects = store.Grades.filter(g => g.student_id === studentId).map(g => g.subject).sort();
-  const items = store.Items
-    .filter(it => it.student_id === studentId && it.subject === subject)
-    .map(it => ({ id: it.id, title: it.title, type: it.type, score: it.score, max: it.max_score, day: it.day }))
-    .sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id);
+  const items = store.Items.filter(it => it.student_id === studentId && it.subject === subject).map(it => ({ id: it.id, title: it.title, type: it.type, score: it.score, max: it.max_score, day: it.day })).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id);
   const g = store.Grades.find(x => x.student_id === studentId && x.subject === subject) || { letter: '-', percent: 0 };
 
   const sums = {};
@@ -1160,6 +1075,7 @@ function openGradesPage(studentId, subject) {
   $('backProfile').onclick = () => openStudent(studentId);
   if (items.length) buildChart($('chartHolder'), items);
 }
+
 function openGradesDir(subject) {
   dirSubject = subject;
   const subjOpts = allSubjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
@@ -1192,10 +1108,7 @@ function openGradesDir(subject) {
   bindTilt($('dirGrid'));
   renderDir();
 }
-function inCurrentPeriodForTier(studentGrade) {
-  if (!currentPeriod) return false;
-  return subjectAtPeriod(tierForGrade(studentGrade), currentPeriod) === dirSubject;
-}
+
 function renderDir() {
   const grid = $('dirGrid');
   if (!grid) return;
@@ -1209,33 +1122,34 @@ function renderDir() {
       const p = Number(r.percent);
       return dirPerf === 'all' || (dirPerf === 'high' ? p >= 90 : dirPerf === 'mid' ? p >= 70 && p < 90 : p < 70);
     });
-  rows.sort(
-    dirSort === 'grade' ? (a, b) => a.grade - b.grade || byName(a, b)
-    : dirSort === 'high' ? (a, b) => b.percent - a.percent || byName(a, b)
-    : dirSort === 'low'  ? (a, b) => a.percent - b.percent || byName(a, b)
-    : byName
-  );
+  rows.sort(dirSort === 'grade' ? (a, b) => a.grade - b.grade || byName(a, b) : dirSort === 'high' ? (a, b) => b.percent - a.percent || byName(a, b) : dirSort === 'low' ? (a, b) => a.percent - b.percent || byName(a, b) : byName);
   if (observer) observer.disconnect();
   if (!rows.length) {
     grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><h3>No matches</h3></div>';
     return;
   }
-  grid.innerHTML = rows.map(r => {
-    const lit = inCurrentPeriodForTier(r.grade);
-    return cardHtml(r, `${esc(r.letter)} · ${Number(r.percent).toFixed(1)}%`, lit);
-  }).join('');
+  grid.innerHTML = rows.map(r => cardHtml(r, `${esc(r.letter)} · ${Number(r.percent).toFixed(1)}%`)).join('');
   observeCards(grid);
 }
+
 function rerenderCurrent() {
   if (view === 'list' && students.length) renderList();
   else if (view === 'gradesDir') renderDir();
 }
-function openSettings() { $('overlay').hidden = false; }
-function closeSettings() { $('overlay').hidden = true; }
+
+function openSettings() {
+  $('overlay').hidden = false;
+}
+
+function closeSettings() {
+  $('overlay').hidden = true;
+}
+
 function setTab(name) {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
   document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
 }
+
 function revealSetting(entry) {
   openSettings();
   setTab(entry.tab);
@@ -1247,6 +1161,7 @@ function revealSetting(entry) {
     setTimeout(() => box.classList.remove('hl'), 2200);
   }, 60);
 }
+
 function pageEntries() {
   const list = [
     { label: 'Home', sub: 'Page', icon: 'fa-house', run: goList },
@@ -1255,31 +1170,33 @@ function pageEntries() {
   allSubjects.forEach(s => list.push({ label: 'Grades · ' + s, sub: 'Page', icon: 'fa-graduation-cap', run: () => openGradesDir(s) }));
   return list;
 }
+
 function computePalette(raw) {
   let mode = 'all';
   let term = raw.trim().toLowerCase();
-  if (term[0] === '@') { mode = 'people'; term = term.slice(1).trim(); }
-  else if (term[0] === '?') { mode = 'settings'; term = term.slice(1).trim(); }
+  if (term[0] === '@') {
+    mode = 'people';
+    term = term.slice(1).trim();
+  } else if (term[0] === '?') {
+    mode = 'settings';
+    term = term.slice(1).trim();
+  }
   const groups = [];
   if (mode === 'all') {
     const pages = pageEntries().filter(p => !term || p.label.toLowerCase().includes(term));
     if (pages.length) groups.push({ title: 'Pages', items: pages });
   }
   if ((mode === 'all' && term) || mode === 'people') {
-    const people = students
-      .filter(s => !term || haystack(s).includes(term))
-      .slice(0, 8)
-      .map(s => ({ label: `${s.first_name} ${s.last_name}`, sub: `${gradeName(s.grade)} · ${studentCode(s)}`, icon: 'fa-user', run: () => openStudent(s.id) }));
+    const people = students.filter(s => !term || haystack(s).includes(term)).slice(0, 8).map(s => ({ label: `${s.first_name} ${s.last_name}`, sub: `${gradeName(s.grade)} · ${studentCode(s)}`, icon: 'fa-user', run: () => openStudent(s.id) }));
     if (people.length) groups.push({ title: 'People', items: people });
   }
   if ((mode === 'all' && term) || mode === 'settings') {
-    const found = SETTINGS_INDEX
-      .filter(x => !term || (x.label + ' ' + x.keys).toLowerCase().includes(term))
-      .map(x => ({ label: x.label, sub: 'Setting', icon: 'fa-sliders', run: () => revealSetting(x) }));
+    const found = SETTINGS_INDEX.filter(x => !term || (x.label + ' ' + x.keys).toLowerCase().includes(term)).map(x => ({ label: x.label, sub: 'Setting', icon: 'fa-sliders', run: () => revealSetting(x) }));
     if (found.length) groups.push({ title: 'Settings', items: found });
   }
   return groups;
 }
+
 function renderPalette() {
   const groups = computePalette($('paletteInput').value);
   paletteItems = [];
@@ -1296,6 +1213,7 @@ function renderPalette() {
   const active = $('paletteResults').querySelector('.palette-item.active');
   if (active) active.scrollIntoView({ block: 'nearest' });
 }
+
 function openPalette() {
   $('palette').hidden = false;
   $('paletteInput').value = '';
@@ -1303,15 +1221,26 @@ function openPalette() {
   renderPalette();
   $('paletteInput').focus();
 }
-function closePalette() { $('palette').hidden = true; }
+
+function closePalette() {
+  $('palette').hidden = true;
+}
+
 function runPalette(i) {
   const it = paletteItems[i];
   if (!it) return;
   closePalette();
   it.run();
 }
-function openShortcuts() { $('shortcuts').hidden = false; }
-function closeShortcuts() { $('shortcuts').hidden = true; }
+
+function openShortcuts() {
+  $('shortcuts').hidden = false;
+}
+
+function closeShortcuts() {
+  $('shortcuts').hidden = true;
+}
+
 async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -1333,9 +1262,11 @@ async function copyText(text) {
     return ok;
   }
 }
+
 function bindSetting(id, event, apply) {
   $(id).addEventListener(event, e => apply(e.target));
 }
+
 function bindEvents() {
   $('navHome').addEventListener('click', goList);
   $('navDash').addEventListener('click', () => { if (students.length) openStudent(students[0].id); });
@@ -1457,11 +1388,7 @@ function bindEvents() {
     if (systemTheme) applyAppearance();
   });
 
-  $('sheetLink').value = SHEET_ID
-    ? (SHEET_KIND === 'published'
-        ? `https://docs.google.com/spreadsheets/d/e/${SHEET_ID}/pubhtml`
-        : `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`)
-    : '';
+  $('sheetLink').value = SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : '';
   $('connectBtn').addEventListener('click', () => connectSheet($('sheetLink').value));
   $('xlsxBtn').addEventListener('click', () => $('xlsxInput').click());
   $('xlsxInput').addEventListener('change', e => {
@@ -1555,13 +1482,6 @@ function bindEvents() {
     if (typing || !$('overlay').hidden || !$('palette').hidden || !$('shortcuts').hidden) return;
     navigate(e.key === 'ArrowLeft' ? -1 : 1);
   });
-
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) refreshCurrentPeriod();
-  });
-
-  periodTimer = setInterval(refreshCurrentPeriod, 30000);
-  refreshCurrentPeriod();
 }
 
 async function boot() {
@@ -1576,15 +1496,10 @@ async function boot() {
     hideLoading();
     checkForUpdates();
   } else if (SHEET_ID) {
-    SHEET_KIND = SHEET_KIND || inferKind(SHEET_ID);
     try {
       await loadFromSheet(SHEET_ID);
       finishBoot();
     } catch (err) {
-      SHEET_ID = '';
-      SHEET_KIND = '';
-      localStorage.removeItem('sheetId');
-      localStorage.removeItem('sheetKind');
       showEmpty();
     }
     hideLoading();
