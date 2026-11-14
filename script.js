@@ -3,8 +3,9 @@ const CONTACT_ORDER = ['Mother', 'Father', 'Grandmother', 'Grandfather', 'Uncle'
 const FONT_SCALES = { small: 0.85, default: 1, large: 1.15 };
 const POLL_INTERVAL = 60000;
 const DEFAULT_SHEET_ID = '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
-const SHEET_TABS = ['Students', 'Teachers', 'Contacts', 'Records', 'Periods', 'Grades', 'Items'];
-const REQUIRED = { Students: 'first_name', Teachers: 'name', Periods: 'tier', Grades: 'letter', Items: 'max_score' };
+const SUBJECTS = ['Algebra I', 'Arabic', 'Biology', 'Chemistry', 'English', 'Geometry', 'Islamic Studies', 'Life Science', 'Mathematics', 'Pre-Algebra', 'Science', 'Social Studies'];
+const STORE_KEYS = ['Students', 'Teachers', 'Contacts', 'Records', 'Periods', 'Grades', 'Items'];
+const REQUIRED = { Students: 'first_name', Teachers: 'name', Periods: 'tier' };
 
 const NUMERIC = {
   Students: ['id', 'grade', 'has_hifz'],
@@ -45,7 +46,7 @@ const store = {
 };
 
 let DATA_SOURCE = localStorage.getItem('dataSource') || 'sheet';
-let SHEET_ID = DATA_SOURCE === 'xlsx' ? '' : localStorage.getItem('activeSheetId') || DEFAULT_SHEET_ID;
+let SHEET_ID = DATA_SOURCE === 'xlsx' ? '' : localStorage.getItem('preferredSheetIdV2') || DEFAULT_SHEET_ID;
 let displayedHash = null;
 let savedHash = null;
 let students = [];
@@ -106,7 +107,7 @@ function gradeName(n) {
 }
 
 function letterOf(p) {
-  return p >= 97 ? 'A+' : p >= 93 ? 'A' : p >= 90 ? 'A-' : p >= 87 ? 'B+' : p >= 83 ? 'B' : p >= 80 ? 'B-' : p >= 77 ? 'C+' : p >= 73 ? 'C' : p >= 70 ? 'C-' : 'D';
+  return p >= 97 ? 'A+' : p >= 93 ? 'A' : p >= 90 ? 'A-' : p >= 87 ? 'B+' : p >= 83 ? 'B' : p >= 80 ? 'B-' : p >= 77 ? 'C+' : p >= 73 ? 'C' : p >= 70 ? 'C-' : p >= 60 ? 'D' : 'F';
 }
 
 function fmtScore(score, max) {
@@ -223,6 +224,7 @@ function normalizeHeader(value) {
     date_of_visit: 'date', visit_date: 'date', record_date: 'date', event_date: 'date', time_of_visit: 'time', visit_time: 'time',
     location_of_visit: 'location', visit_location: 'location', location_department: 'location', department_location: 'location', office_or_nurse: 'location', nurse_office: 'location',
     reason_for_visit: 'reason', visit_reason: 'reason', purpose: 'reason', record_type: 'type', event_type: 'type', type_of_visit: 'type', record_category: 'type', category: 'type', event: 'type',
+    full_name: 'student_name', student: 'student_name', incident_type: 'type', incident_date: 'date', action_taken: 'action',
     detail: 'description', details: 'description', description_of_visit: 'description', what_happened: 'description', staff_member: 'staff', recorded_by: 'staff', logged_by: 'staff', created_by: 'staff',
     phone_number: 'phone', e_mail: 'email', zip_code: 'zip'
   };
@@ -271,7 +273,7 @@ function isContactSheet(rows) {
 function isRecordSheet(rows) {
   if (!rows || !rows.length) return false;
   const linked = hasColumn(rows, 'student_id') || hasColumn(rows, 'student_name') || (hasColumn(rows, 'first_name') && hasColumn(rows, 'last_name'));
-  const detail = ['date', 'time', 'datetime', 'timestamp', 'created_at', 'location', 'reason', 'type', 'status', 'description', 'notes', 'title', 'action', 'day'].some(k => hasColumn(rows, k));
+  const detail = ['date', 'time', 'datetime', 'timestamp', 'created_at', 'location', 'reason', 'type', 'status', 'description', 'notes', 'title', 'action', 'incident', 'day'].some(k => hasColumn(rows, k));
   return linked && detail;
 }
 
@@ -295,36 +297,125 @@ function inlineContacts(studentRows) {
 function resolveLinkedStudentId(row, allStudents) {
   const rawId = row.student_id;
   if (rawId !== '' && rawId != null && Number.isFinite(Number(rawId)) && Number(rawId) > 0) return Number(rawId);
-  const name = String(row.student_name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const clean = value => String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const first = String(row.first_name || '').trim();
+  const last = String(row.last_name || '').trim();
+  if (first || last) {
+    const found = allStudents.find(s => clean(s.first_name) === clean(first) && clean(s.last_name) === clean(last));
+    if (found) return Number(found.id);
+  }
+  const name = String(row.student_name || row.name || '').trim();
   if (!name) return 0;
   if (/^\d+$/.test(name)) return Number(name);
-  const found = allStudents.find(s => (String(s.first_name) + ' ' + String(s.last_name)).trim().toLowerCase().replace(/\s+/g, ' ') === name);
-  return found ? Number(found.id) : 0;
+  const target = clean(name);
+  const match = allStudents.find(s => clean(String(s.first_name) + ' ' + String(s.last_name)) === target);
+  if (match) return Number(match.id);
+  if (name.includes(',')) {
+    const parts = name.split(',').map(x => x.trim());
+    const reversed = allStudents.find(s => clean(s.first_name) === clean(parts[1]) && clean(s.last_name) === clean(parts[0]));
+    if (reversed) return Number(reversed.id);
+  }
+  return 0;
+}
+
+function sheetKey(source, name) {
+  const found = Object.keys(source || {}).find(k => String(k).trim().toLowerCase() === name.toLowerCase());
+  return found || '';
+}
+
+function getSheetRows(source, name) {
+  const key = sheetKey(source, name);
+  return key ? source[key] || [] : [];
+}
+
+function personStudentId(row, allStudents) {
+  return resolveLinkedStudentId(row, allStudents);
+}
+
+function scoreParts(value) {
+  const raw = String(value == null ? '' : value).trim();
+  if (!raw || /^(n\/?a|none|null|-)$/i.test(raw)) return null;
+  const fraction = raw.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if (fraction) {
+    const score = Number(fraction[1]);
+    const max = Number(fraction[2]);
+    if (max <= 0) return null;
+    return { score, max, percent: Math.max(0, Math.min(100, score / max * 100)) };
+  }
+  const letter = raw.toUpperCase();
+  const letterScores = { 'A+': 98, A: 95, 'A-': 91, 'B+': 88, B: 85, 'B-': 81, 'C+': 78, C: 75, 'C-': 71, D: 65, F: 50 };
+  if (Object.prototype.hasOwnProperty.call(letterScores, letter)) return { score: letterScores[letter], max: 100, percent: letterScores[letter], letter };
+  const hasPercent = /%$/.test(raw);
+  const n = Number(raw.replace(/,/g, '').replace(/%$/, ''));
+  if (!Number.isFinite(n)) return null;
+  const percent = hasPercent ? n : n >= 0 && n <= 1 && !Number.isInteger(n) ? n * 100 : n;
+  return { score: Math.max(0, Math.min(100, percent)), max: 100, percent: Math.max(0, Math.min(100, percent)) };
 }
 
 function dataFromRows(rowsByTab) {
   const source = rowsByTab || {};
   const next = {};
-  const studentsRows = source.Students || [];
-  if (!hasColumn(studentsRows, REQUIRED.Students)) throw new Error('The Students tab is missing or has the wrong columns.');
-  next.Students = normalize('Students', rowsToObjects(studentsRows));
-  ['Teachers', 'Periods', 'Grades', 'Items'].forEach(t => {
-    const rows = source[t] || [];
-    if (!hasColumn(rows, REQUIRED[t])) throw new Error('The ' + t + ' tab is missing or has the wrong columns.');
-    next[t] = normalize(t, rowsToObjects(rows));
-  });
-  const contactRows = source.Contacts || [];
-  if (isContactSheet(contactRows)) {
-    next.Contacts = normalize('Contacts', rowsToObjects(contactRows)).map(c => ({ ...c, student_id: resolveLinkedStudentId(c, next.Students) })).filter(c => c.student_id > 0 && c.relation && c.name);
+  const studentsRows = getSheetRows(source, 'Students');
+  if (!hasColumn(studentsRows, 'first_name')) throw new Error('The Students tab must contain first_name and last_name columns.');
+  next.Students = normalize('Students', rowsToObjects(studentsRows)).map(s => ({ ...s, id: Number(s.id) || 0, first_name: String(s.first_name || '').trim(), last_name: String(s.last_name || '').trim() })).filter(s => s.first_name || s.last_name);
+  const teachersRows = getSheetRows(source, 'Teachers');
+  if (!hasColumn(teachersRows, 'name')) throw new Error('The Teachers tab must contain a name column.');
+  next.Teachers = normalize('Teachers', rowsToObjects(teachersRows));
+  const periodsRows = getSheetRows(source, 'Periods');
+  if (!hasColumn(periodsRows, 'tier')) throw new Error('The Periods tab must contain a tier column.');
+  next.Periods = normalize('Periods', rowsToObjects(periodsRows));
+  const contactsRows = getSheetRows(source, 'Contacts');
+  if (isContactSheet(contactsRows)) {
+    next.Contacts = normalize('Contacts', rowsToObjects(contactsRows)).map(c => ({ ...c, student_id: personStudentId(c, next.Students) })).filter(c => c.student_id > 0 && c.relation && c.name);
   } else next.Contacts = [];
   if (!next.Contacts.length) next.Contacts = inlineContacts(next.Students);
-  const recordRows = source.Records && source.Records.length ? source.Records : source.Attendance || [];
-  next.Records = isRecordSheet(recordRows) ? normalize('Records', rowsToObjects(recordRows)).map(r => ({ ...r, student_id: resolveLinkedStudentId(r, next.Students) })) : [];
+  const recordsRows = getSheetRows(source, 'Records');
+  const legacyAttendanceRows = getSheetRows(source, 'Attendance');
+  const recordRows = isRecordSheet(recordsRows) ? recordsRows : (isRecordSheet(legacyAttendanceRows) && (hasColumn(legacyAttendanceRows, 'incident') || hasColumn(legacyAttendanceRows, 'action') || hasColumn(legacyAttendanceRows, 'location') || hasColumn(legacyAttendanceRows, 'reason') || hasColumn(legacyAttendanceRows, 'datetime') || hasColumn(legacyAttendanceRows, 'date')) ? legacyAttendanceRows : []);
+  next.Records = recordRows.length ? normalize('Records', rowsToObjects(recordRows)).map((r, i) => ({ ...r, id: Number(r.id) || i + 1, student_id: personStudentId(r, next.Students) })) : [];
+  const itemsRows = getSheetRows(source, 'Items');
+  next.Items = hasColumn(itemsRows, 'max_score') ? normalize('Items', rowsToObjects(itemsRows)).map(it => ({ ...it, student_id: personStudentId(it, next.Students) })) : [];
+  const groups = new Map();
+  const addGrade = (row, subject, directLegacy = false) => {
+    const studentId = personStudentId(row, next.Students);
+    if (!studentId || !subject) return;
+    const rawGrade = row.grade !== '' && row.grade != null ? row.grade : row.letter !== '' && row.letter != null ? row.letter : row.percent;
+    const parts = scoreParts(rawGrade);
+    if (!parts) return;
+    const key = studentId + '|' + subject;
+    const group = groups.get(key) || { student_id: studentId, subject, earned: 0, possible: 0, directPercent: null, directLetter: '' };
+    if (directLegacy && row.percent !== '' && row.percent != null && Number.isFinite(Number(row.percent))) {
+      group.directPercent = Math.max(0, Math.min(100, Number(row.percent)));
+      group.directLetter = String(row.letter || '');
+    } else {
+      group.earned += parts.score;
+      group.possible += parts.max;
+    }
+    groups.set(key, group);
+  };
+  const legacyGradesRows = getSheetRows(source, 'Grades');
+  if (legacyGradesRows.length && hasColumn(legacyGradesRows, 'subject') && (hasColumn(legacyGradesRows, 'letter') || hasColumn(legacyGradesRows, 'grade') || hasColumn(legacyGradesRows, 'percent'))) {
+    rowsToObjects(legacyGradesRows).forEach(row => addGrade(row, String(row.subject || '').trim(), true));
+  }
+  Object.keys(source).forEach(name => {
+    const match = String(name).trim().match(/^(.+?)\s+grades$/i);
+    if (!match) return;
+    const rows = source[name] || [];
+    if (!hasColumn(rows, 'first_name') || !hasColumn(rows, 'last_name') || !hasColumn(rows, 'grade')) return;
+    const subject = match[1].trim();
+    rowsToObjects(rows).forEach(row => addGrade(row, subject));
+  });
+  if (!groups.size) throw new Error('No grade data found. Expected subject tabs ending in "grades" or a Grades tab.');
+  next.Grades = Array.from(groups.values()).map((g, i) => {
+    const percent = g.directPercent != null ? g.directPercent : g.possible ? g.earned / g.possible * 100 : 0;
+    const letter = g.directLetter || letterOf(percent);
+    return { id: i + 1, student_id: g.student_id, subject: g.subject, letter, percent: Math.round(percent * 10) / 10 };
+  }).sort((a, b) => a.subject.localeCompare(b.subject) || a.student_id - b.student_id);
   return next;
 }
 
 function adopt(next) {
-  SHEET_TABS.forEach(t => { store[t] = next[t]; });
+  STORE_KEYS.forEach(t => { store[t] = Array.isArray(next[t]) ? next[t] : []; });
 }
 
 function hashText(t) {
@@ -334,7 +425,7 @@ function hashText(t) {
 }
 
 function hashAll(texts) {
-  return SHEET_TABS.map(t => hashText(texts[t])).join('|');
+  return Object.keys(texts).sort().map(t => t + ':' + hashText(texts[t] || '')).join('|');
 }
 
 async function fetchCsv(id, tab) {
@@ -347,42 +438,54 @@ async function fetchCsv(id, tab) {
 }
 
 async function fetchSheetTexts(id) {
+  const names = ['Students', 'Teachers', 'Periods', 'Records', 'Attendance', 'Contacts', 'Grades', 'Items', ...SUBJECTS.map(s => s + ' grades')];
+  const required = new Set(['Students', 'Teachers', 'Periods']);
   const texts = {};
-  for (const t of ['Students', 'Teachers', 'Periods', 'Grades', 'Items']) texts[t] = await fetchCsv(id, t);
-  try { texts.Contacts = await fetchCsv(id, 'Contacts'); } catch (err) { texts.Contacts = ''; }
-  try { texts.Records = await fetchCsv(id, 'Records'); } catch (err) {
-    try { texts.Records = await fetchCsv(id, 'Attendance'); } catch (fallbackErr) { texts.Records = ''; }
+  let cursor = 0;
+  let failure = null;
+  const worker = async () => {
+    while (cursor < names.length) {
+      const name = names[cursor++];
+      try {
+        texts[name] = await fetchCsv(id, name);
+      } catch (err) {
+        texts[name] = '';
+        if (required.has(name) && !failure) failure = err;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: 5 }, worker));
+  if (failure) throw failure;
+  if (!texts.Records) {
+    try { texts.Records = await fetchCsv(id, 'Record'); } catch (err) { texts.Records = ''; }
   }
   return texts;
 }
 
 function parseTexts(texts) {
   const rows = {};
-  SHEET_TABS.forEach(t => { rows[t] = parseCSV(texts[t] || ''); });
+  Object.keys(texts).forEach(t => { rows[t] = parseCSV(texts[t] || ''); });
   return rows;
 }
+
 function saveCache(rowsByTab, hash, id) {
   try {
     localStorage.setItem('sheetData', JSON.stringify(rowsByTab));
     localStorage.setItem('sheetHash', hash);
     localStorage.setItem('sheetCacheId', id || '');
-    if (id) {
-      localStorage.setItem('activeSheetId', id);
-      localStorage.setItem('dataSource', 'sheet');
-      DATA_SOURCE = 'sheet';
-    } else {
-      localStorage.removeItem('activeSheetId');
-      localStorage.setItem('dataSource', 'xlsx');
-      DATA_SOURCE = 'xlsx';
-    }
   } catch (e) {
     localStorage.removeItem('sheetData');
     localStorage.removeItem('sheetHash');
     localStorage.setItem('sheetCacheId', id || '');
-    localStorage.setItem('dataSource', id ? 'sheet' : 'xlsx');
-    DATA_SOURCE = id ? 'sheet' : 'xlsx';
-    if (id) localStorage.setItem('activeSheetId', id);
-    else localStorage.removeItem('activeSheetId');
+  }
+  if (id) {
+    localStorage.setItem('preferredSheetIdV2', id);
+    localStorage.setItem('activeSheetId', id);
+    localStorage.setItem('dataSource', 'sheet');
+    DATA_SOURCE = 'sheet';
+  } else {
+    localStorage.setItem('dataSource', 'xlsx');
+    DATA_SOURCE = 'xlsx';
   }
 }
 
@@ -399,8 +502,10 @@ function loadCache() {
 }
 
 function extractSheetId(v) {
-  const s = String(v).trim();
-  const m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  const s = String(v || '').trim();
+  const lower = s.toLowerCase();
+  if (lower.includes('/spreadsheets/d/e/') || (lower.includes('/pub?') && lower.includes('output=csv'))) return '';
+  const m = s.match(/\/spreadsheets\/d\/(?!e\/)([a-zA-Z0-9_-]+)(?:\/|$)/i) || s.match(/\/d\/(?!e\/)([a-zA-Z0-9_-]+)(?:\/|$)/i);
   if (m) return m[1];
   return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
 }
@@ -412,9 +517,9 @@ async function loadFromSheet(id) {
   const hash = hashAll(texts);
   adopt(next);
   saveCache(rows, hash, id);
-    SHEET_ID = id;
-    DATA_SOURCE = 'sheet';
-    displayedHash = hash;
+  SHEET_ID = id;
+  DATA_SOURCE = 'sheet';
+  displayedHash = hash;
   savedHash = hash;
 }
 
@@ -433,9 +538,15 @@ async function checkForUpdates() {
 }
 
 async function connectSheet(link) {
-  const id = extractSheetId(link);
+  const value = String(link || '').trim();
+  const lower = value.toLowerCase();
+  if (lower.includes('/spreadsheets/d/e/') || (lower.includes('/pub?') && lower.includes('output=csv'))) {
+    toast('That published CSV link contains one tab only. Paste the normal Google Sheets /d/…/edit link or import the .xlsx workbook.');
+    return;
+  }
+  const id = extractSheetId(value);
   if (!id) {
-    toast('Enter a valid Google Sheet link.');
+    toast('Enter the normal Google Sheets sharing link, not the published CSV link.');
     return;
   }
   toast('Connecting…');
@@ -443,33 +554,34 @@ async function connectSheet(link) {
     await loadFromSheet(id);
     closeSettings();
     finishBoot();
-    toast('Connected to Google Sheets.');
+    toast('Connected: ' + store.Students.length + ' students and ' + store.Grades.length + ' subject grades.');
   } catch (err) {
-    toast('Could not load the sheet. Share it with anyone who has the link.');
+    toast(err && err.message ? err.message : 'Could not load the Google Sheet. Check sharing access and tab names.');
   }
 }
 
 async function importXlsx(file) {
   try {
     const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
+    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
     const rows = {};
-    SHEET_TABS.forEach(t => {
-      const ws = t === 'Records' ? (wb.Sheets.Records || wb.Sheets.Attendance) : wb.Sheets[t];
-      rows[t] = ws ? XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) : [];
+    wb.SheetNames.forEach(name => {
+      rows[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false });
     });
+    if (!Object.keys(rows).length) throw new Error('The workbook contains no worksheets.');
     const next = dataFromRows(rows);
     adopt(next);
-    saveCache(rows, 'xlsx', '');
+    const cacheRows = Object.fromEntries(Object.entries(rows).filter(([name]) => ['Students', 'Teachers', 'Periods', 'Records', 'Record', 'Attendance', 'Contacts', 'Grades', 'Items'].includes(name) || /\s+grades$/i.test(name)));
+    saveCache(cacheRows, 'xlsx', '');
     SHEET_ID = '';
     DATA_SOURCE = 'xlsx';
     displayedHash = 'xlsx';
     savedHash = 'xlsx';
     closeSettings();
     finishBoot();
-    toast('Data imported successfully!');
+    toast('Imported ' + next.Students.length + ' students, ' + next.Grades.length + ' subject grades, and ' + next.Records.length + ' records.');
   } catch (err) {
-    toast('Import failed: ' + err.message);
+    toast('Import failed: ' + (err && err.message ? err.message : 'Check the workbook tabs and headers.'));
   } finally {
     $('xlsxInput').value = '';
   }
@@ -855,9 +967,10 @@ function formatRecordWhen(record) {
 
 function renderRecord(record) {
   const location = recordValue(record, ['location', 'place', 'department', 'office', 'room']);
-  const type = recordValue(record, ['type', 'event_type', 'record_type', 'category', 'status', 'action']);
-  const title = location || type || recordValue(record, ['title', 'subject']) || 'Student record';
-  const reason = recordValue(record, ['reason', 'description', 'details', 'notes', 'what_happened', 'summary', 'comments', 'purpose']);
+  const type = recordValue(record, ['type', 'event_type', 'record_type', 'category', 'status']);
+  const incident = recordValue(record, ['incident', 'title', 'subject']);
+  const title = incident || location || type || 'Student record';
+  const reason = recordValue(record, ['reason', 'description', 'details', 'notes', 'what_happened', 'summary', 'comments', 'purpose', 'action']);
   const staff = recordValue(record, ['staff', 'recorded_by', 'logged_by', 'created_by', 'staff_member', 'nurse', 'office_staff']);
   const secondary = type && type.toLowerCase() !== title.toLowerCase() ? '<span class="record-kind">' + esc(type) + '</span>' : '';
   return '<article class="record-entry"><div class="record-entry-top"><div class="record-title-wrap"><strong class="record-title">' + esc(title) + '</strong>' + secondary + '</div><time class="record-when">' + esc(formatRecordWhen(record)) + '</time></div>' + (reason ? '<p class="record-description">' + esc(reason) + '</p>' : '') + (staff ? '<div class="record-staff">Recorded by ' + esc(staff) + '</div>' : '') + '</article>';
@@ -1177,8 +1290,13 @@ function openGradesPage(studentId, subject) {
   const rows = items.slice().reverse().map(it => {
     const p = (it.score / it.max) * 100;
     const cls = p >= 90 ? ' good' : p < 70 ? ' bad' : '';
-    return `<div class="assign-row"><span class="type-badge ${esc(it.type).toLowerCase()}">${esc(it.type)}</span><span class="a-title">${esc(it.title)}</span><span class="a-date">${shortDate(it.day)}</span><span class="a-score${cls}">${fmtScore(it.score, it.max)}</span></div>`;
+    const dateLabel = it.day ? shortDate(it.day) : 'Date unavailable';
+    return `<div class="assign-row"><span class="type-badge ${esc(it.type || 'Grade').toLowerCase()}">${esc(it.type || 'Grade')}</span><span class="a-title">${esc(it.title || 'Assignment')}</span><span class="a-date">${esc(dateLabel)}</span><span class="a-score${cls}">${fmtScore(it.score, it.max)}</span></div>`;
   }).join('');
+  const detailCards = items.length ? `
+      <div class="card full"><h3><i class="fa-solid fa-chart-line"></i> Progress Over Time</h3><div id="chartHolder"></div></div>
+      <div class="card popout"><h3><i class="fa-solid fa-chart-pie"></i> Score Distribution</h3><div class="pie-wrap">${ring(distSegs, 8, 16)}${legend(distSegs)}</div></div>
+      <div class="card popout"><h3><i class="fa-solid fa-list-check"></i> All Assignments</h3><div class="assign-list">${rows}</div></div>` : `<div class="card full"><h3><i class="fa-solid fa-chart-line"></i> Grade Details</h3><p class="records-empty">The workbook provides scores for this subject but does not include assignment titles or dates. The displayed grade is averaged from the available scores.</p></div>`;
 
   $('gradesView').innerHTML = `
     <div class="detail-bar">
@@ -1189,26 +1307,13 @@ function openGradesPage(studentId, subject) {
       <div class="g-info"><h2>${esc(s.first_name)} ${esc(s.last_name)}</h2><span>${gradeName(s.grade)} · ${studentCode(s)}</span></div>
       <div class="g-badge"><b>${esc(g.letter)}</b><span>${Number(g.percent).toFixed(1)}%</span></div>
     </div>
-    <div class="grades-grid">
-      <div class="card full">
-        <h3><i class="fa-solid fa-chart-line"></i> Progress Over Time</h3>
-        <div id="chartHolder"></div>
-      </div>
-      <div class="card popout">
-        <h3><i class="fa-solid fa-chart-pie"></i> Score Distribution</h3>
-        <div class="pie-wrap">${ring(distSegs, 8, 16)}${legend(distSegs)}</div>
-      </div>
-      <div class="card popout">
-        <h3><i class="fa-solid fa-list-check"></i> All Assignments</h3>
-        <div class="assign-list">${rows}</div>
-      </div>
-    </div>`;
+    <div class="grades-grid">${detailCards}</div>`;
 
   showView('grades', `${s.first_name}'s ${subject}`);
   window.scrollTo(0, 0);
   setSmart(`<strong>${esc(subject)}</strong><span>${esc(s.first_name)} ${esc(s.last_name)}</span>`, $('gHero'));
   $('backProfile').onclick = () => openStudent(studentId);
-  if (items.length) buildChart($('chartHolder'), items);
+  if (items.length && $('chartHolder')) buildChart($('chartHolder'), items);
 }
 
 function openGradesDir(subject) {
@@ -1623,6 +1728,10 @@ async function boot() {
   applyAppearance();
   bindEvents();
   const cached = loadCache();
+  if (!cached && !SHEET_ID) {
+    SHEET_ID = DEFAULT_SHEET_ID;
+    DATA_SOURCE = 'sheet';
+  }
   if (cached) {
     adopt(cached.data);
     displayedHash = cached.hash;
