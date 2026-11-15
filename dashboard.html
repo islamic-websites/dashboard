@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Albaseerah Dashboard</title>
+  <title>Albaseerah Staff Dashboard</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,9 +17,9 @@
 <body>
   <div id="login-screen" class="login-screen">
     <div class="login-card glass">
-      <img src="./image/flogo.png" alt="Albaseerah" class="login-logo">
+      <img src="./image/flogo.png" alt="Albaseerah Logo" class="login-logo">
       <h1>Welcome Back</h1>
-      <p class="login-sub">Sign in to your account</p>
+      <p class="login-sub">Sign in to your staff account</p>
       <form id="login-form">
         <div class="input-group">
           <label for="username">Username</label>
@@ -29,7 +29,7 @@
           <label for="password">Password</label>
           <div class="password-wrapper">
             <input type="password" id="password" required autocomplete="current-password">
-            <button type="button" id="toggle-password" class="eye-btn">👁️</button>
+            <button type="button" id="toggle-password" class="toggle-password">Show</button>
           </div>
         </div>
         <div class="remember-group">
@@ -43,23 +43,27 @@
   </div>
 
   <div id="app" class="app hidden">
-    <div id="data-banner" class="data-banner hidden">Data updated in Google Sheets. <button id="refresh-data">Refresh</button></div>
+    <div id="data-banner" class="data-banner hidden">
+      Data updated in Google Sheets. <button id="refresh-data">Refresh</button>
+    </div>
+    
     <header class="topbar glass">
       <div class="topbar-left">
         <img src="./image/logo.png" alt="Icon" class="topbar-logo">
         <h2>Albaseerah</h2>
       </div>
       <div class="topbar-right">
-        <button id="cmd-trigger" class="btn-icon">⌘K</button>
-        <button id="settings-btn" class="btn-icon">⚙️</button>
-        <button id="logout-btn" class="btn-icon">🚪</button>
+        <button id="cmd-trigger" class="btn-icon" title="Command Palette">Command</button>
+        <button id="settings-btn" class="btn-icon" title="Settings">Settings</button>
+        <button id="logout-btn" class="btn-icon" title="Logout">Logout</button>
       </div>
     </header>
+
     <div class="main-layout">
       <aside class="sidebar glass">
         <nav id="sidebar-nav">
           <div class="dropdown" id="dashboard-dropdown">
-            <div class="nav-item" id="dashboard-toggle">Dashboard ▼</div>
+            <div class="nav-item dropdown-toggle" id="dashboard-toggle">Dashboard</div>
             <div class="dropdown-menu">
               <div class="dropdown-item" data-view="overview">Overview</div>
               <div class="dropdown-item" data-view="period1">Period 1</div>
@@ -81,37 +85,41 @@
           <div class="nav-item" data-view="info">Info Grid</div>
         </nav>
       </aside>
+
       <main id="main-content" class="main-content">
         <div id="view-container"></div>
       </main>
     </div>
-    
+
     <div id="chat-fab" class="chat-fab">
       <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
     </div>
+
     <div id="chat-window" class="chat-window glass hidden">
       <div class="chat-header">
-        <h3>Nova AI</h3>
-        <button id="close-chat" class="btn-icon">✕</button>
+        <h3>Rayyan AI</h3>
+        <button id="close-chat" class="btn-icon">Close</button>
       </div>
       <div id="chat-messages" class="chat-messages"></div>
       <div class="chat-input-area">
-        <input type="text" id="chat-input" placeholder="Ask Nova...">
+        <input type="text" id="chat-input" placeholder="Ask Rayyan about the website or anything else...">
         <button id="send-chat" class="btn-primary">Send</button>
       </div>
     </div>
 
     <div id="toast-container" class="toast-container"></div>
+
     <div id="modal-container" class="modal-container hidden">
-      <div class="modal-overlay"></div>
+      <div class="modal-overlay" id="modal-overlay"></div>
       <div class="modal-content glass">
         <div id="modal-body"></div>
       </div>
     </div>
+
     <div id="command-palette" class="command-palette hidden">
-      <div class="cmd-overlay"></div>
+      <div class="cmd-overlay" id="cmd-overlay"></div>
       <div class="cmd-box glass">
-        <input type="text" id="cmd-input" placeholder="Search commands...">
+        <input type="text" id="cmd-input" placeholder="Type a command, @ for People, ? for Settings...">
         <div id="cmd-results" class="cmd-results"></div>
       </div>
     </div>
