@@ -24,7 +24,7 @@ const SETTINGS_INDEX = [
 ];
 
 
-let SHEET_ID = localStorage.getItem('sheetId') || '';
+let SHEET_ID = localStorage.getItem('sheetId') || '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
 let displayedHash = null;
 let savedHash = null;
 let students = [];
