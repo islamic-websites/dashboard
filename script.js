@@ -1,1757 +1,965 @@
-const DEFAULT_PFP = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96"><rect width="96" height="96" fill="#f5e6ea"/><circle cx="48" cy="38" r="17" fill="#9c3452" fill-opacity="0.55"/><path d="M14 96c0-20 15-34 34-34s34 14 34 34z" fill="#9c3452" fill-opacity="0.55"/></svg>');
-const CONTACT_ORDER = ['Mother', 'Father', 'Grandmother', 'Grandfather', 'Uncle', 'Aunt', 'Uncle 2', 'Aunt 2'];
-const FONT_SCALES = { small: 0.85, default: 1, large: 1.15 };
-const POLL_INTERVAL = 60000;
-const DEFAULT_SHEET_ID = '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
-const SUBJECTS = ['Algebra I', 'Arabic', 'Biology', 'Chemistry', 'English', 'Geometry', 'Islamic Studies', 'Life Science', 'Mathematics', 'Pre-Algebra', 'Science', 'Social Studies'];
-const STORE_KEYS = ['Students', 'Teachers', 'Contacts', 'Records', 'Periods', 'Grades', 'Items'];
-const REQUIRED = { Students: 'first_name', Teachers: 'name', Periods: 'tier' };
-
-const NUMERIC = {
-  Students: ['id', 'grade', 'has_hifz'],
-  Teachers: ['id'],
-  Contacts: ['id', 'student_id'],
-  Records: ['id', 'student_id'],
-  Periods: ['id', 'period_no', 'teacher_id'],
-  Grades: ['id', 'student_id', 'percent'],
-  Items: ['id', 'student_id', 'score', 'max_score']
+const SHEET_ID = '1uPM8U6GKVYu3mZyTGVLuQDGbKYjLEwMibCFDN-B0zIU';
+const GVIZ_BASE = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=`;
+const SHEETS = {
+  students: 'Students',
+  teachers: 'Teachers',
+  periods: 'Periods',
+  records: 'Records',
+  grades: ['Algebra I grades', 'Arabic grades', 'Biology grades', 'Chemistry grades', 'English grades', 'Geometry grades', 'Islamic Studies grades', 'Life Science grades', 'Mathematics grades', 'Pre-Algebra grades', 'Science grades', 'Social Studies grades']
 };
 
-const SETTINGS_INDEX = [
-  { label: 'Grade format', tab: 'general', id: 'gradeFormat', keys: 'fraction percentage letter score' },
-  { label: 'View mode', tab: 'general', id: 'viewMode', keys: 'grid list layout' },
-  { label: 'Density', tab: 'general', id: 'densityRange', keys: 'spacing compact comfortable padding gap slider' },
-  { label: 'Show guardian contacts', tab: 'general', id: 'contactsToggle', keys: 'guardian contacts parents phone layout' },
-  { label: 'Show records', tab: 'general', id: 'recordsToggle', keys: 'records nurse office visits history' },
-  { label: 'Dark mode', tab: 'appearance', id: 'darkToggle', keys: 'dark night theme light' },
-  { label: 'Follow system theme', tab: 'appearance', id: 'systemToggle', keys: 'system automatic auto theme os' },
-  { label: 'Accent color', tab: 'appearance', id: 'accentSelect', keys: 'maroon gold blue green color' },
-  { label: 'Corner radius', tab: 'appearance', id: 'radiusSelect', keys: 'sharp rounded pill corners' },
-  { label: 'Font size', tab: 'appearance', id: 'fontSelect', keys: 'small default large text size' },
-  { label: 'Font', tab: 'appearance', id: 'fontFamilySelect', keys: 'typeface dm sans inter lora roboto family' },
-  { label: 'Background pattern', tab: 'appearance', id: 'patternToggle', keys: 'islamic geometric pattern background' },
-  { label: 'Reduce motion', tab: 'appearance', id: 'motionToggle', keys: 'animation animations motion accessibility' },
-  { label: 'Google Sheet Link', tab: 'advanced', id: 'sheetLink', keys: 'google sheets import data url connect' },
-  { label: 'Import .xlsx', tab: 'advanced', id: 'xlsxBtn', keys: 'excel workbook import file upload' }
-];
+let currentUser = null;
+let studentsData = [];
+let teachersData = [];
+let periodsData = [];
+let recordsData = [];
+let gradesData = {};
+let chatHistory = [];
+let dataHash = '';
 
-const store = {
-  Students: [],
-  Teachers: [],
-  Contacts: [],
-  Records: [],
-  Periods: [],
-  Grades: [],
-  Items: []
-};
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => document.querySelectorAll(sel);
 
-let DATA_SOURCE = localStorage.getItem('dataSource') || 'sheet';
-let SHEET_ID = DATA_SOURCE === 'xlsx' ? '' : localStorage.getItem('preferredSheetIdV2') || DEFAULT_SHEET_ID;
-let displayedHash = null;
-let savedHash = null;
-let students = [];
-let allSubjects = [];
-let studentSubjects = [];
-let view = 'list';
-let searchTerm = '';
-let currentId = null;
-let currentSubject = null;
-let dirSubject = null;
-let observer = null;
-let swipeBusy = false;
-let watchEl = null;
-let endYear = null;
-let magnet = null;
-let paletteIdx = 0;
-let paletteItems = [];
-let fabData = { email: '', phone: '', code: '' };
-let homeGrade = 'all';
-let homeHifz = 'all';
-let homeSort = 'name';
-let dirGrade = 'all';
-let dirLetter = 'all';
-let dirPerf = 'all';
-let dirSort = 'name';
-
-const flag = (k, d) => {
-  const v = localStorage.getItem(k);
-  return v === null ? d : v === 'true';
-};
-const storedDensity = localStorage.getItem('densityValue');
-let gradeFormat = localStorage.getItem('gradeFormat') || 'fraction';
-let viewMode = localStorage.getItem('viewMode') || 'grid';
-let densityValue = storedDensity === null ? 100 : Number(storedDensity);
-let isDarkMode = flag('darkMode', false);
-let systemTheme = flag('systemTheme', false);
-let accent = localStorage.getItem('accent') || 'maroon';
-let radius = localStorage.getItem('radius') || 'rounded';
-let fontSize = localStorage.getItem('fontSize') || 'default';
-let fontFamily = localStorage.getItem('fontFamily') || 'DM Sans';
-let patternOn = flag('patternOn', false);
-let reduceMotion = flag('reduceMotion', false);
-let showContacts = flag('showContacts', true);
-let showRecords = flag('showRecords', flag('showAttendance', true));
-
-const $ = id => document.getElementById(id);
-
-function esc(v) {
-  return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+function showToast(msg, duration = 3000) {
+  const container = $('#toast-container');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), duration);
 }
 
-function gradeName(n) {
-  n = Number(n);
-  if (n === 1) return '1st grade';
-  if (n === 2) return '2nd grade';
-  if (n === 3) return '3rd grade';
-  return `${n}th grade`;
+function showModal(content) {
+  const container = $('#modal-container');
+  $('#modal-body').innerHTML = content;
+  container.classList.remove('hidden');
 }
 
-function letterOf(p) {
-  return p >= 97 ? 'A+' : p >= 93 ? 'A' : p >= 90 ? 'A-' : p >= 87 ? 'B+' : p >= 83 ? 'B' : p >= 80 ? 'B-' : p >= 77 ? 'C+' : p >= 73 ? 'C' : p >= 70 ? 'C-' : p >= 60 ? 'D' : 'F';
+function hideModal() {
+  $('#modal-container').classList.add('hidden');
 }
 
-function fmtScore(score, max) {
-  const pct = max ? (score / max) * 100 : 0;
-  if (gradeFormat === 'percentage') return `${Math.round(pct)}%`;
-  if (gradeFormat === 'letter') return letterOf(pct);
-  return `${score}/${max}`;
+function base64UrlToBuffer(base64Url) {
+  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+  const binary = atob(base64 + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
 }
 
-function shortDate(d) {
-  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function toast(msg) {
-  const t = $('toast');
-  t.innerHTML = `<span>${esc(msg)}</span><i class="toast-bar"></i>`;
-  t.classList.remove('show');
-  void t.offsetWidth;
-  t.classList.add('show');
-  clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-function save(key, value) {
-  localStorage.setItem(key, String(value));
-}
-
-function applyDensity() {
-  const root = document.documentElement;
-  const t = densityValue / 100;
-  const r = (a, b) => (a + (b - a) * t).toFixed(3) + 'rem';
-  root.style.setProperty('--card-pad-y', r(0.375, 1));
-  root.style.setProperty('--card-pad-x', r(0.625, 1.125));
-  root.style.setProperty('--card-gap', r(0.5, 1));
-  root.style.setProperty('--avatar', r(1.75, 3.25));
-  root.style.setProperty('--col-min', r(12.5, 18.75));
-  document.querySelectorAll('.student-grid').forEach(g => g.classList.toggle('tight', densityValue < 20));
-}
-
-function applyAppearance() {
-  const root = document.documentElement;
-  const dark = systemTheme ? window.matchMedia('(prefers-color-scheme: dark)').matches : isDarkMode;
-  if (dark) root.setAttribute('data-theme', 'dark');
-  else root.removeAttribute('data-theme');
-  root.setAttribute('data-accent', accent);
-  root.setAttribute('data-radius', radius);
-  root.setAttribute('data-motion', reduceMotion ? 'reduce' : 'full');
-  root.setAttribute('data-pattern', patternOn ? 'on' : 'off');
-  root.style.setProperty('--font-scale', FONT_SCALES[fontSize] || 1);
-  root.style.setProperty('--font-body', `'${fontFamily}', system-ui, sans-serif`);
-  applyDensity();
-  $('gradeFormat').value = gradeFormat;
-  $('viewMode').value = viewMode;
-  $('densityRange').value = densityValue;
-  $('darkToggle').checked = dark;
-  $('darkToggle').disabled = systemTheme;
-  $('systemToggle').checked = systemTheme;
-  $('accentSelect').value = accent;
-  $('radiusSelect').value = radius;
-  $('fontSelect').value = fontSize;
-  $('fontFamilySelect').value = fontFamily;
-  $('patternToggle').checked = patternOn;
-  $('motionToggle').checked = reduceMotion;
-  $('contactsToggle').checked = showContacts;
-  $('recordsToggle').checked = showRecords;
-}
-
-function parseCSV(text) {
-  const rows = [];
-  let row = [];
-  let field = '';
-  let inQ = false;
-  if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (inQ) {
-      if (c === '"') {
-        if (text[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQ = false;
-        }
-      } else {
-        field += c;
-      }
-    } else if (c === '"') {
-      inQ = true;
-    } else if (c === ',') {
-      row.push(field);
-      field = '';
-    } else if (c === '\n' || c === '\r') {
-      if (c === '\r' && text[i + 1] === '\n') i++;
-      row.push(field);
-      field = '';
-      rows.push(row);
-      row = [];
-    } else {
-      field += c;
-    }
+async function verifyPassword(password, storedHash) {
+  const parts = storedHash.split('$');
+  if (parts.length !== 4) return false;
+  const [, iterations, saltB64, hashB64] = parts;
+  const salt = base64UrlToBuffer(saltB64);
+  const expectedHash = base64UrlToBuffer(hashB64);
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits({
+    name: 'PBKDF2',
+    salt: salt,
+    iterations: parseInt(iterations),
+    hash: 'SHA-256'
+  }, keyMaterial, 256);
+  const derivedArray = new Uint8Array(derivedBits);
+  const expectedArray = new Uint8Array(expectedHash);
+  if (derivedArray.length !== expectedArray.length) return false;
+  for (let i = 0; i < derivedArray.length; i++) {
+    if (derivedArray[i] !== expectedArray[i]) return false;
   }
-  if (field !== '' || row.length) {
-    row.push(field);
-    rows.push(row);
-  }
-  return rows.filter(r => r.length > 1 || r[0] !== '');
+  return true;
 }
 
-function normalizeHeader(value) {
-  const key = String(value == null ? '' : value).trim().toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-  const aliases = {
-    student: 'student_name', studentid: 'student_id', student_no: 'student_id', student_number: 'student_id', school_student_id: 'student_id',
-    name_of_student: 'student_name', student_full_name: 'student_name', date_time: 'datetime', date_and_time: 'datetime', visit_datetime: 'datetime', event_datetime: 'datetime',
-    date_of_visit: 'date', visit_date: 'date', record_date: 'date', event_date: 'date', time_of_visit: 'time', visit_time: 'time',
-    location_of_visit: 'location', visit_location: 'location', location_department: 'location', department_location: 'location', office_or_nurse: 'location', nurse_office: 'location',
-    reason_for_visit: 'reason', visit_reason: 'reason', purpose: 'reason', record_type: 'type', event_type: 'type', type_of_visit: 'type', record_category: 'type', category: 'type', event: 'type',
-    full_name: 'student_name', student: 'student_name', incident_type: 'type', incident_date: 'date', action_taken: 'action',
-    detail: 'description', details: 'description', description_of_visit: 'description', what_happened: 'description', staff_member: 'staff', recorded_by: 'staff', logged_by: 'staff', created_by: 'staff',
-    phone_number: 'phone', e_mail: 'email', zip_code: 'zip'
-  };
-  return aliases[key] || key;
-}
-
-function rowsToObjects(values) {
-  if (!values || !values.length) return [];
-  const headers = values[0].map(normalizeHeader);
-  return values.slice(1).filter(r => r.some(v => String(v == null ? '' : v).trim() !== '')).map(r => {
-    const o = {};
-    headers.forEach((h, i) => { o[h] = r[i] === undefined ? '' : r[i]; });
-    return o;
-  });
-}
-
-function normalize(tab, rows) {
-  const cols = NUMERIC[tab] || [];
-  return rows.map(r => {
-    cols.forEach(c => {
-      const v = r[c];
-      if (v === '' || v == null) r[c] = 0;
-      else if (typeof v === 'boolean') r[c] = v ? 1 : 0;
-      else {
-        const raw = String(v).trim();
-        if (/^(true|yes|y)$/i.test(raw)) r[c] = 1;
-        else if (/^(false|no|n)$/i.test(raw)) r[c] = 0;
-        else {
-          const parsed = Number(raw.replace(/,/g, '').replace(/%$/, ''));
-          r[c] = Number.isFinite(parsed) ? parsed : v;
-        }
-      }
-    });
-    return r;
-  });
-}
-
-function hasColumn(rows, name) {
-  return Boolean(rows && rows.length && rows[0].some(h => normalizeHeader(h) === name));
-}
-
-function isContactSheet(rows) {
-  return hasColumn(rows, 'relation') && (hasColumn(rows, 'student_id') || hasColumn(rows, 'student_name'));
-}
-
-function isRecordSheet(rows) {
-  if (!rows || !rows.length) return false;
-  const linked = hasColumn(rows, 'student_id') || hasColumn(rows, 'student_name') || (hasColumn(rows, 'first_name') && hasColumn(rows, 'last_name'));
-  const detail = ['date', 'time', 'datetime', 'timestamp', 'created_at', 'location', 'reason', 'type', 'status', 'description', 'notes', 'title', 'action', 'incident', 'day'].some(k => hasColumn(rows, k));
-  return linked && detail;
-}
-
-function inlineContacts(studentRows) {
-  const fields = [
-    ['Mother', 'mother_name', 'mother_phone'], ['Father', 'father_name', 'father_phone'],
-    ['Grandmother', 'grandmother_name', 'grandmother_phone'], ['Grandfather', 'grandfather_name', 'grandfather_phone'],
-    ['Uncle', 'uncle_name', 'uncle_phone'], ['Aunt', 'aunt_name', 'aunt_phone'],
-    ['Uncle 2', 'uncle2_name', 'uncle2_phone'], ['Aunt 2', 'aunt2_name', 'aunt2_phone']
-  ];
-  const result = [];
-  studentRows.forEach(s => fields.forEach(([relation, nameKey, phoneKey]) => {
-    const name = String(s[nameKey] == null ? '' : s[nameKey]).trim();
-    if (!name || /^(n\/?a|none|null|-)$/i.test(name)) return;
-    const phone = String(s[phoneKey] == null ? '' : s[phoneKey]).trim();
-    result.push({ id: result.length + 1, student_id: Number(s.id), relation, name, phone: /^(n\/?a|none|null|-)$/i.test(phone) ? '' : phone });
-  }));
-  return result;
-}
-
-function resolveLinkedStudentId(row, allStudents) {
-  const rawId = row.student_id;
-  if (rawId !== '' && rawId != null && Number.isFinite(Number(rawId)) && Number(rawId) > 0) return Number(rawId);
-  const clean = value => String(value == null ? '' : value).trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
-  const first = String(row.first_name || '').trim();
-  const last = String(row.last_name || '').trim();
-  if (first || last) {
-    const found = allStudents.find(s => clean(s.first_name) === clean(first) && clean(s.last_name) === clean(last));
-    if (found) return Number(found.id);
-  }
-  const name = String(row.student_name || row.name || '').trim();
-  if (!name) return 0;
-  if (/^\d+$/.test(name)) return Number(name);
-  const target = clean(name);
-  const match = allStudents.find(s => clean(String(s.first_name) + ' ' + String(s.last_name)) === target);
-  if (match) return Number(match.id);
-  if (name.includes(',')) {
-    const parts = name.split(',').map(x => x.trim());
-    const reversed = allStudents.find(s => clean(s.first_name) === clean(parts[1]) && clean(s.last_name) === clean(parts[0]));
-    if (reversed) return Number(reversed.id);
-  }
-  return 0;
-}
-
-function sheetKey(source, name) {
-  const found = Object.keys(source || {}).find(k => String(k).trim().toLowerCase() === name.toLowerCase());
-  return found || '';
-}
-
-function getSheetRows(source, name) {
-  const key = sheetKey(source, name);
-  return key ? source[key] || [] : [];
-}
-
-function personStudentId(row, allStudents) {
-  return resolveLinkedStudentId(row, allStudents);
-}
-
-function scoreParts(value) {
-  const raw = String(value == null ? '' : value).trim();
-  if (!raw || /^(n\/?a|none|null|-)$/i.test(raw)) return null;
-  const fraction = raw.match(/^(-?\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
-  if (fraction) {
-    const score = Number(fraction[1]);
-    const max = Number(fraction[2]);
-    if (max <= 0) return null;
-    return { score, max, percent: Math.max(0, Math.min(100, score / max * 100)) };
-  }
-  const letter = raw.toUpperCase();
-  const letterScores = { 'A+': 98, A: 95, 'A-': 91, 'B+': 88, B: 85, 'B-': 81, 'C+': 78, C: 75, 'C-': 71, D: 65, F: 50 };
-  if (Object.prototype.hasOwnProperty.call(letterScores, letter)) return { score: letterScores[letter], max: 100, percent: letterScores[letter], letter };
-  const hasPercent = /%$/.test(raw);
-  const n = Number(raw.replace(/,/g, '').replace(/%$/, ''));
-  if (!Number.isFinite(n)) return null;
-  const percent = hasPercent ? n : n >= 0 && n <= 1 && !Number.isInteger(n) ? n * 100 : n;
-  return { score: Math.max(0, Math.min(100, percent)), max: 100, percent: Math.max(0, Math.min(100, percent)) };
-}
-
-function dataFromRows(rowsByTab) {
-  const source = rowsByTab || {};
-  const next = {};
-  const studentsRows = getSheetRows(source, 'Students');
-  if (!hasColumn(studentsRows, 'first_name')) throw new Error('The Students tab must contain first_name and last_name columns.');
-  next.Students = normalize('Students', rowsToObjects(studentsRows)).map(s => ({ ...s, id: Number(s.id) || 0, first_name: String(s.first_name || '').trim(), last_name: String(s.last_name || '').trim() })).filter(s => s.first_name || s.last_name);
-  const teachersRows = getSheetRows(source, 'Teachers');
-  if (!hasColumn(teachersRows, 'name')) throw new Error('The Teachers tab must contain a name column.');
-  next.Teachers = normalize('Teachers', rowsToObjects(teachersRows));
-  const periodsRows = getSheetRows(source, 'Periods');
-  if (!hasColumn(periodsRows, 'tier')) throw new Error('The Periods tab must contain a tier column.');
-  next.Periods = normalize('Periods', rowsToObjects(periodsRows));
-  const contactsRows = getSheetRows(source, 'Contacts');
-  if (isContactSheet(contactsRows)) {
-    next.Contacts = normalize('Contacts', rowsToObjects(contactsRows)).map(c => ({ ...c, student_id: personStudentId(c, next.Students) })).filter(c => c.student_id > 0 && c.relation && c.name);
-  } else next.Contacts = [];
-  if (!next.Contacts.length) next.Contacts = inlineContacts(next.Students);
-  const recordsRows = getSheetRows(source, 'Records');
-  const legacyAttendanceRows = getSheetRows(source, 'Attendance');
-  const recordRows = isRecordSheet(recordsRows) ? recordsRows : (isRecordSheet(legacyAttendanceRows) && (hasColumn(legacyAttendanceRows, 'incident') || hasColumn(legacyAttendanceRows, 'action') || hasColumn(legacyAttendanceRows, 'location') || hasColumn(legacyAttendanceRows, 'reason') || hasColumn(legacyAttendanceRows, 'datetime') || hasColumn(legacyAttendanceRows, 'date')) ? legacyAttendanceRows : []);
-  next.Records = recordRows.length ? normalize('Records', rowsToObjects(recordRows)).map((r, i) => ({ ...r, id: Number(r.id) || i + 1, student_id: personStudentId(r, next.Students) })) : [];
-  const itemsRows = getSheetRows(source, 'Items');
-  next.Items = hasColumn(itemsRows, 'max_score') ? normalize('Items', rowsToObjects(itemsRows)).map(it => ({ ...it, student_id: personStudentId(it, next.Students) })) : [];
-  const groups = new Map();
-  const addGrade = (row, subject, directLegacy = false) => {
-    const studentId = personStudentId(row, next.Students);
-    if (!studentId || !subject) return;
-    const rawGrade = row.grade !== '' && row.grade != null ? row.grade : row.letter !== '' && row.letter != null ? row.letter : row.percent;
-    const parts = scoreParts(rawGrade);
-    if (!parts) return;
-    const key = studentId + '|' + subject;
-    const group = groups.get(key) || { student_id: studentId, subject, earned: 0, possible: 0, directPercent: null, directLetter: '' };
-    if (directLegacy && row.percent !== '' && row.percent != null && Number.isFinite(Number(row.percent))) {
-      group.directPercent = Math.max(0, Math.min(100, Number(row.percent)));
-      group.directLetter = String(row.letter || '');
-    } else {
-      group.earned += parts.score;
-      group.possible += parts.max;
-    }
-    groups.set(key, group);
-  };
-  const legacyGradesRows = getSheetRows(source, 'Grades');
-  if (legacyGradesRows.length && hasColumn(legacyGradesRows, 'subject') && (hasColumn(legacyGradesRows, 'letter') || hasColumn(legacyGradesRows, 'grade') || hasColumn(legacyGradesRows, 'percent'))) {
-    rowsToObjects(legacyGradesRows).forEach(row => addGrade(row, String(row.subject || '').trim(), true));
-  }
-  Object.keys(source).forEach(name => {
-    const match = String(name).trim().match(/^(.+?)\s+grades$/i);
-    if (!match) return;
-    const rows = source[name] || [];
-    if (!hasColumn(rows, 'first_name') || !hasColumn(rows, 'last_name') || !hasColumn(rows, 'grade')) return;
-    const subject = match[1].trim();
-    rowsToObjects(rows).forEach(row => addGrade(row, subject));
-  });
-  if (!groups.size) throw new Error('No grade data found. Expected subject tabs ending in "grades" or a Grades tab.');
-  next.Grades = Array.from(groups.values()).map((g, i) => {
-    const percent = g.directPercent != null ? g.directPercent : g.possible ? g.earned / g.possible * 100 : 0;
-    const letter = g.directLetter || letterOf(percent);
-    return { id: i + 1, student_id: g.student_id, subject: g.subject, letter, percent: Math.round(percent * 10) / 10 };
-  }).sort((a, b) => a.subject.localeCompare(b.subject) || a.student_id - b.student_id);
-  return next;
-}
-
-function adopt(next) {
-  STORE_KEYS.forEach(t => { store[t] = Array.isArray(next[t]) ? next[t] : []; });
-}
-
-function hashText(t) {
-  let h = 5381;
-  for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
-  return String(h >>> 0) + ':' + t.length;
-}
-
-function hashAll(texts) {
-  return Object.keys(texts).sort().map(t => t + ':' + hashText(texts[t] || '')).join('|');
-}
-
-async function fetchCsv(id, tab) {
-  const url = 'https://docs.google.com/spreadsheets/d/' + id + '/gviz/tq?tqx=out:csv&sheet=' + encodeURIComponent(tab);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('Could not read the ' + tab + ' tab.');
+async function fetchCSV(sheetName) {
+  const res = await fetch(GVIZ_BASE + encodeURIComponent(sheetName));
   const text = await res.text();
-  if (!text.trim() || /^\s*</.test(text) || /"status"\s*:\s*"error"/i.test(text)) throw new Error('Could not read the ' + tab + ' tab.');
-  return text;
-}
-
-async function fetchSheetTexts(id) {
-  const names = ['Students', 'Teachers', 'Periods', 'Records', 'Attendance', 'Contacts', 'Grades', 'Items', ...SUBJECTS.map(s => s + ' grades')];
-  const required = new Set(['Students', 'Teachers', 'Periods']);
-  const texts = {};
-  let cursor = 0;
-  let failure = null;
-  const worker = async () => {
-    while (cursor < names.length) {
-      const name = names[cursor++];
-      try {
-        texts[name] = await fetchCsv(id, name);
-      } catch (err) {
-        texts[name] = '';
-        if (required.has(name) && !failure) failure = err;
+  const rows = [];
+  let currentRow = [];
+  let currentField = '';
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        currentField += '"';
+        i++;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        currentField += char;
+      }
+    } else {
+      if (char === '"') {
+        inQuotes = true;
+      } else if (char === ',') {
+        currentRow.push(currentField);
+        currentField = '';
+      } else if (char === '\n' || (char === '\r' && next === '\n')) {
+        if (char === '\r') i++;
+        currentRow.push(currentField);
+        rows.push(currentRow);
+        currentRow = [];
+        currentField = '';
+      } else {
+        currentField += char;
       }
     }
-  };
-  await Promise.all(Array.from({ length: 5 }, worker));
-  if (failure) throw failure;
-  if (!texts.Records) {
-    try { texts.Records = await fetchCsv(id, 'Record'); } catch (err) { texts.Records = ''; }
   }
-  return texts;
-}
-
-function parseTexts(texts) {
-  const rows = {};
-  Object.keys(texts).forEach(t => { rows[t] = parseCSV(texts[t] || ''); });
+  if (currentField || currentRow.length) {
+    currentRow.push(currentField);
+    rows.push(currentRow);
+  }
   return rows;
 }
 
-function saveCache(rowsByTab, hash, id) {
-  try {
-    localStorage.setItem('sheetData', JSON.stringify(rowsByTab));
-    localStorage.setItem('sheetHash', hash);
-    localStorage.setItem('sheetCacheId', id || '');
-  } catch (e) {
-    localStorage.removeItem('sheetData');
-    localStorage.removeItem('sheetHash');
-    localStorage.setItem('sheetCacheId', id || '');
-  }
-  if (id) {
-    localStorage.setItem('preferredSheetIdV2', id);
-    localStorage.setItem('activeSheetId', id);
-    localStorage.setItem('dataSource', 'sheet');
-    DATA_SOURCE = 'sheet';
-  } else {
-    localStorage.setItem('dataSource', 'xlsx');
-    DATA_SOURCE = 'xlsx';
-  }
-}
-
-function loadCache() {
-  try {
-    const raw = localStorage.getItem('sheetData');
-    const hash = localStorage.getItem('sheetHash');
-    if (!raw || !hash) return null;
-    if (DATA_SOURCE !== 'xlsx' && localStorage.getItem('sheetCacheId') !== SHEET_ID) return null;
-    return { data: dataFromRows(JSON.parse(raw)), hash: hash };
-  } catch (e) {
-    return null;
-  }
-}
-
-function extractSheetId(v) {
-  const s = String(v || '').trim();
-  const lower = s.toLowerCase();
-  if (lower.includes('/spreadsheets/d/e/') || (lower.includes('/pub?') && lower.includes('output=csv'))) return '';
-  const m = s.match(/\/spreadsheets\/d\/(?!e\/)([a-zA-Z0-9_-]+)(?:\/|$)/i) || s.match(/\/d\/(?!e\/)([a-zA-Z0-9_-]+)(?:\/|$)/i);
-  if (m) return m[1];
-  return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : '';
-}
-
-async function loadFromSheet(id) {
-  const texts = await fetchSheetTexts(id);
-  const rows = parseTexts(texts);
-  const next = dataFromRows(rows);
-  const hash = hashAll(texts);
-  adopt(next);
-  saveCache(rows, hash, id);
-  SHEET_ID = id;
-  DATA_SOURCE = 'sheet';
-  displayedHash = hash;
-  savedHash = hash;
-}
-
-async function checkForUpdates() {
-  if (!SHEET_ID || DATA_SOURCE === 'xlsx') return;
-  try {
-    const texts = await fetchSheetTexts(SHEET_ID);
-    const hash = hashAll(texts);
-    if (hash === savedHash) return;
-    const rows = parseTexts(texts);
-    dataFromRows(rows);
-    saveCache(rows, hash, SHEET_ID);
-    savedHash = hash;
-    $('updateBanner').hidden = false;
-  } catch (err) {}
-}
-
-async function connectSheet(link) {
-  const value = String(link || '').trim();
-  const lower = value.toLowerCase();
-  if (lower.includes('/spreadsheets/d/e/') || (lower.includes('/pub?') && lower.includes('output=csv'))) {
-    toast('That published CSV link contains one tab only. Paste the normal Google Sheets /d/…/edit link or import the .xlsx workbook.');
-    return;
-  }
-  const id = extractSheetId(value);
-  if (!id) {
-    toast('Enter the normal Google Sheets sharing link, not the published CSV link.');
-    return;
-  }
-  toast('Connecting…');
-  try {
-    await loadFromSheet(id);
-    closeSettings();
-    finishBoot();
-    toast('Connected: ' + store.Students.length + ' students and ' + store.Grades.length + ' subject grades.');
-  } catch (err) {
-    toast(err && err.message ? err.message : 'Could not load the Google Sheet. Check sharing access and tab names.');
-  }
-}
-
-async function importXlsx(file) {
-  try {
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-    const rows = {};
-    wb.SheetNames.forEach(name => {
-      rows[name] = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false });
+function parseStudents(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const students = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row[0] && !row[1]) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] || '';
     });
-    if (!Object.keys(rows).length) throw new Error('The workbook contains no worksheets.');
-    const next = dataFromRows(rows);
-    adopt(next);
-    const cacheRows = Object.fromEntries(Object.entries(rows).filter(([name]) => ['Students', 'Teachers', 'Periods', 'Records', 'Record', 'Attendance', 'Contacts', 'Grades', 'Items'].includes(name) || /\s+grades$/i.test(name)));
-    saveCache(cacheRows, 'xlsx', '');
-    SHEET_ID = '';
-    DATA_SOURCE = 'xlsx';
-    displayedHash = 'xlsx';
-    savedHash = 'xlsx';
-    closeSettings();
-    finishBoot();
-    toast('Imported ' + next.Students.length + ' students, ' + next.Grades.length + ' subject grades, and ' + next.Records.length + ' records.');
-  } catch (err) {
-    toast('Import failed: ' + (err && err.message ? err.message : 'Check the workbook tabs and headers.'));
-  } finally {
-    $('xlsxInput').value = '';
+    students.push(obj);
+  }
+  return students;
+}
+
+function parseTeachers(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const teachers = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row[0] && !row[1]) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] || '';
+    });
+    teachers.push(obj);
+  }
+  return teachers;
+}
+
+function parsePeriods(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const periods = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row[0]) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] || '';
+    });
+    periods.push(obj);
+  }
+  return periods;
+}
+
+function parseRecords(rows) {
+  if (rows.length < 2) return [];
+  const headers = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+  const records = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row[0]) continue;
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = row[idx] || '';
+    });
+    records.push(obj);
+  }
+  return records;
+}
+
+async function loadAllData() {
+  try {
+    const [studentsRows, teachersRows, periodsRows, recordsRows] = await Promise.all([
+      fetchCSV(SHEETS.students),
+      fetchCSV(SHEETS.teachers),
+      fetchCSV(SHEETS.periods),
+      fetchCSV(SHEETS.records).catch(() => [])
+    ]);
+    studentsData = parseStudents(studentsRows);
+    teachersData = parseTeachers(teachersRows);
+    periodsData = parsePeriods(periodsRows);
+    recordsData = parseRecords(recordsRows);
+    for (const gradeSheet of SHEETS.grades) {
+      try {
+        const rows = await fetchCSV(gradeSheet);
+        if (rows.length > 0) {
+          gradesData[gradeSheet] = rows;
+        }
+      } catch (e) {}
+    }
+    dataHash = JSON.stringify({
+      students: studentsData.length,
+      teachers: teachersData.length,
+      periods: periodsData.length,
+      records: recordsData.length
+    });
+  } catch (e) {
+    console.error('Failed to load data', e);
   }
 }
 
-function teacherMap() {
-  const m = {};
-  store.Teachers.forEach(t => { m[t.id] = t; });
-  return m;
+async function pollData() {
+  try {
+    const [studentsRows, teachersRows] = await Promise.all([
+      fetchCSV(SHEETS.students),
+      fetchCSV(SHEETS.teachers)
+    ]);
+    const newHash = JSON.stringify({
+      students: studentsRows.length,
+      teachers: teachersRows.length
+    });
+    if (newHash !== dataHash) {
+      $('#data-banner').classList.remove('hidden');
+    }
+  } catch (e) {}
 }
 
-function dirRows() {
-  return store.Grades.filter(g => g.subject === dirSubject).map(g => {
-    const s = students.find(x => x.id === g.student_id);
-    return s ? { id: s.id, first_name: s.first_name, last_name: s.last_name, grade: s.grade, email: s.email, letter: g.letter, percent: g.percent } : null;
-  }).filter(Boolean);
+function startPolling() {
+  setInterval(pollData, 60000);
 }
 
-function computeEndYear() {
-  let d = new Date();
-  let max = '';
-  store.Items.forEach(it => { if (it.day > max) max = it.day; });
-  if (max) d = new Date(max + 'T12:00:00');
-  endYear = d.getFullYear() + (d.getMonth() >= 7 ? 1 : 0);
-}
-
-function initialNum(ch) {
-  const c = String(ch || 'A').toUpperCase().charCodeAt(0);
-  return ((((c - 65) % 9) + 9) % 9) + 1;
-}
-
-function studentCode(s) {
-  const grad = endYear + 12 - s.grade;
-  const join = endYear - 1 - (s.id % Math.max(1, s.grade));
-  return '#' + String(grad).slice(-2) + initialNum(s.first_name[0]) + initialNum(s.last_name[0]) + String(join).slice(-2);
-}
-
-function gmailLink(email) {
-  return `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(email)}`;
-}
-
-function setActive(name) {
-  $('navHome').classList.toggle('active', name === 'home');
-  $('navDash').classList.toggle('active', name === 'dash');
-  $('navGrades').classList.toggle('active', name === 'grades');
-}
-
-function checkSmart() {
-  const bar = $('smartBar');
-  if (!watchEl) {
-    bar.classList.remove('show');
-    return;
+function getCurrentPeriod() {
+  const now = new Date();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const time = hour * 60 + minute;
+  const periods = [
+    { start: 8 * 60, end: 8 * 60 + 45 },
+    { start: 8 * 60 + 50, end: 9 * 60 + 35 },
+    { start: 9 * 60 + 40, end: 10 * 60 + 25 },
+    { start: 10 * 60 + 30, end: 10 * 60 + 45 },
+    { start: 10 * 60 + 50, end: 11 * 60 + 35 },
+    { start: 11 * 60 + 40, end: 12 * 60 + 25 },
+    { start: 12 * 60 + 30, end: 13 * 60 + 15 },
+    { start: 13 * 60 + 20, end: 14 * 60 + 5 },
+    { start: 14 * 60 + 10, end: 14 * 60 + 55 }
+  ];
+  for (let i = 0; i < periods.length; i++) {
+    if (time >= periods[i].start && time < periods[i].end) {
+      return i + 1;
+    }
   }
-  bar.classList.toggle('show', watchEl.getBoundingClientRect().bottom < $('topbar').getBoundingClientRect().bottom + 8);
-}
-
-function setSmart(html, el) {
-  $('smartBar').innerHTML = html;
-  watchEl = el;
-  checkSmart();
-}
-
-function navList() {
-  if (view === 'profile') return { ids: students.map(s => s.id), cur: currentId };
-  if (view === 'grades') return { ids: studentSubjects, cur: currentSubject };
-  if (view === 'gradesDir') return { ids: allSubjects, cur: dirSubject };
   return null;
 }
 
-function updateEdges() {
-  const n = navList();
-  $('edgePrev').hidden = !n;
-  $('edgeNext').hidden = !n;
-  if (!n) return;
-  const off = n.ids.length < 2;
-  $('edgePrev').disabled = off;
-  $('edgeNext').disabled = off;
+function getTeacherPeriods(teacherId) {
+  return periodsData.filter(p => parseFloat(p.teacher_id) === parseFloat(teacherId));
 }
 
-function showView(name, title) {
-  view = name;
-  ['list', 'profile', 'grades', 'gradesDir'].forEach(v => { $(v + 'View').hidden = v !== name; });
-  $('pageTitle').textContent = title;
-  setActive(name === 'list' ? 'home' : name === 'profile' ? 'dash' : 'grades');
-  $('topSearch').hidden = name === 'list';
-  $('fab').hidden = name !== 'profile';
-  $('fab').classList.remove('open');
-  watchEl = null;
-  $('smartBar').classList.remove('show');
-  updateEdges();
-}
-
-function swipe(dir, fn) {
-  if (reduceMotion) {
-    fn();
-    return;
-  }
-  swipeBusy = true;
-  const el = $(view + 'View');
-  el.classList.add(dir > 0 ? 'out-left' : 'out-right');
-  setTimeout(() => {
-    el.classList.remove('out-left', 'out-right');
-    fn();
-    const nv = $(view + 'View');
-    nv.classList.add(dir > 0 ? 'in-right' : 'in-left');
-    setTimeout(() => {
-      nv.classList.remove('in-right', 'in-left');
-      swipeBusy = false;
-    }, 520);
-  }, 220);
-}
-
-function navigate(dir) {
-  const n = navList();
-  if (!n || swipeBusy) return;
-  const len = n.ids.length;
-  if (len < 2) return;
-  const i = (n.ids.indexOf(n.cur) + dir + len) % len;
-  const target = n.ids[i];
-  swipe(dir, () => {
-    if (view === 'profile') openStudent(target);
-    else if (view === 'grades') openGradesPage(currentId, target);
-    else openGradesDir(target);
-  });
-}
-
-function showEmpty() {
-  students = [];
-  allSubjects = [];
-  buildSubnav();
-  $('homeFilter').hidden = true;
-  $('studentGrid').className = 'student-grid';
-  $('studentGrid').innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-question"></i><h3>No data found</h3><div class="source-grid"><div class="source-card"><h4><i class="fa-solid fa-table"></i> Google Sheet Link</h4><input class="text-input" type="text" id="emptyLink" placeholder="https://docs.google.com/spreadsheets/d/..." autocomplete="off"><button class="btn" type="button" id="emptyConnect"><i class="fa-solid fa-plug"></i> Connect</button></div><div class="source-card drop-zone" id="dropZone"><h4><i class="fa-solid fa-file-excel"></i> Excel workbook</h4><span>Drop .xlsx here</span><button class="btn ghost" type="button" id="emptyPick"><i class="fa-solid fa-file-import"></i> Choose file</button></div></div></div>';
-  showView('list', 'Students');
-  $('emptyLink').value = SHEET_ID || DEFAULT_SHEET_ID;
-  $('emptyConnect').onclick = () => connectSheet($('emptyLink').value);
-  $('emptyPick').onclick = () => $('xlsxInput').click();
-  const dz = $('dropZone');
-  dz.ondragover = e => { e.preventDefault(); dz.classList.add('over'); };
-  dz.ondragleave = () => dz.classList.remove('over');
-  dz.ondrop = e => {
-    e.preventDefault();
-    dz.classList.remove('over');
-    const f = e.dataTransfer.files[0];
-    if (f) importXlsx(f);
-  };
-}
-
-function buildSubnav() {
-  $('subnavList').innerHTML = allSubjects.map(s => `<button type="button" class="subnav-item" data-subject="${esc(s)}">${esc(s)}</button>`).join('');
-}
-
-function finishBoot() {
-  students = store.Students.slice().sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name) || a.id - b.id);
-  allSubjects = Array.from(new Set(store.Grades.map(g => g.subject))).sort();
-  if (!students.length) {
-    showEmpty();
-    return;
-  }
-  computeEndYear();
-  buildSubnav();
-  goList();
-}
-
-function hideLoading() {
-  const l = $('loadingScreen');
-  l.classList.add('hide');
-  setTimeout(() => { l.hidden = true; }, 500);
-}
-
-function gridClass() {
-  return 'student-grid' + (viewMode === 'list' ? ' list-mode' : '') + (densityValue < 20 ? ' tight' : '');
-}
-
-function haystack(s) {
-  return `${s.first_name} ${s.last_name} ${s.email} ${gradeName(s.grade)} ${s.grade} ${studentCode(s)}`.toLowerCase();
-}
-
-function matchTerm(s) {
-  const term = searchTerm.trim().toLowerCase();
-  if (!term) return true;
-  return haystack(s).includes(term);
-}
-
-function gradeOptions() {
-  let out = '<option value="all">All grades</option>';
-  for (let n = 1; n <= 12; n++) out += `<option value="${n}">${gradeName(n)}</option>`;
-  return out;
-}
-
-function sortStudents(list, mode) {
-  const byName = (a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name);
-  const arr = list.slice();
-  if (mode === 'grade') arr.sort((a, b) => a.grade - b.grade || byName(a, b));
-  else if (mode === 'id') arr.sort((a, b) => studentCode(a).localeCompare(studentCode(b)) || byName(a, b));
-  else arr.sort(byName);
-  return arr;
-}
-
-function syncSearch(v) {
-  searchTerm = v;
-  $('searchInput').value = v;
-  $('homeSearch').value = v;
-  rerenderCurrent();
-}
-
-function observeCards(grid) {
-  if (observer) observer.disconnect();
-  observer = new IntersectionObserver(entries => {
-    let n = 0;
-    entries.forEach(e => {
-      const c = e.target;
-      if (e.isIntersecting) {
-        const d = n++ * 50;
-        c.style.transitionDelay = d + 'ms';
-        c.classList.add('in');
-        setTimeout(() => { c.style.transitionDelay = ''; }, 700 + d);
-      } else {
-        c.style.transitionDelay = '';
-        c.classList.remove('in');
+function getStudentsForPeriod(period) {
+  const gradeSheet = period.subject + ' grades';
+  if (gradesData[gradeSheet]) {
+    const rows = gradesData[gradeSheet];
+    if (rows.length < 2) return [];
+    const headers = rows[0].map(h => h.trim());
+    const nameIdx = headers.findIndex(h => h.toLowerCase().includes('name'));
+    if (nameIdx === -1) return [];
+    const studentNames = [];
+    for (let i = 1; i < rows.length; i++) {
+      const name = rows[i][nameIdx];
+      if (name && !name.includes('Date') && !name.includes('period')) {
+        studentNames.push(name);
       }
-    });
-  }, { threshold: 0.05 });
-  grid.querySelectorAll('.student-card').forEach(c => observer.observe(c));
-}
-
-function bindTilt(grid) {
-  grid.addEventListener('mousemove', e => {
-    if (reduceMotion) return;
-    const c = e.target.closest('.student-card');
-    if (!c || !c.classList.contains('in')) return;
-    const r = c.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width - 0.5;
-    const py = (e.clientY - r.top) / r.height - 0.5;
-    c.classList.add('tilting');
-    c.style.transform = `perspective(700px) rotateX(${(-py * 8).toFixed(2)}deg) rotateY(${(px * 8).toFixed(2)}deg) translateY(-2px) scale(1.015)`;
-  });
-  grid.addEventListener('mouseout', e => {
-    const c = e.target.closest('.student-card');
-    if (!c || c.contains(e.relatedTarget)) return;
-    c.classList.remove('tilting');
-    c.style.transform = '';
-  });
-}
-
-function cardHtml(s, right) {
-  return `<button type="button" class="student-card popout" data-id="${s.id}"><img class="sc-avatar" src="${DEFAULT_PFP}" alt=""><div class="sc-text"><span class="sc-name">${esc(s.first_name)} ${esc(s.last_name)}</span><span class="sc-sub">${gradeName(s.grade)} · ${esc(s.email)}</span></div><span class="pill">${right}</span></button>`;
-}
-
-function goList() {
-  currentId = null;
-  currentSubject = null;
-  if (!students.length) {
-    showEmpty();
-    return;
-  }
-  showView('list', 'Students');
-  $('homeFilter').hidden = false;
-  renderList();
-}
-
-function renderList() {
-  const grid = $('studentGrid');
-  grid.className = gridClass();
-  const list = sortStudents(students.filter(matchTerm).filter(s => homeGrade === 'all' || s.grade === Number(homeGrade)).filter(s => homeHifz === 'all' || (homeHifz === 'yes' ? !!s.has_hifz : !s.has_hifz)), homeSort);
-  if (observer) observer.disconnect();
-  if (!list.length) {
-    grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><h3>No matches</h3></div>';
-    return;
-  }
-  grid.innerHTML = list.map(s => cardHtml(s, gradeName(s.grade))).join('');
-  observeCards(grid);
-}
-
-function ring(segs, r, sw) {
-  const C = 2 * Math.PI * r;
-  const total = segs.reduce((a, s) => a + s.v, 0);
-  let out = '<svg viewBox="0 0 42 42" class="ring">';
-  if (!total) {
-    out += `<circle cx="21" cy="21" r="${r}" fill="none" style="stroke:var(--line)" stroke-width="${sw}"/>`;
-  } else {
-    let cum = 0;
-    segs.forEach(s => {
-      if (!s.v) return;
-      const len = (s.v / total) * C;
-      out += `<circle cx="21" cy="21" r="${r}" fill="none" style="stroke:${s.color}" stroke-width="${sw}" stroke-dasharray="${len} ${C - len}" stroke-dashoffset="${C / 4 - cum}"/>`;
-      cum += len;
+    }
+    return studentsData.filter(s => {
+      const fullName = (s.first_name + ' ' + s.last_name).toLowerCase();
+      return studentNames.some(n => fullName.includes(n.toLowerCase()) || n.toLowerCase().includes(fullName));
     });
   }
-  return out + '</svg>';
+  return studentsData;
 }
 
-function legend(segs) {
-  return '<div class="legend">' + segs.map(s => `<div class="legend-row"><span class="dot" style="background:${s.color}"></span>${s.label}<b>${s.v}</b></div>`).join('') + '</div>';
+function renderLogin() {
+  $('#login-screen').classList.remove('hidden');
+  $('#app').classList.add('hidden');
 }
 
-function wheel(grades) {
-  const n = grades.length;
-  if (!n) return '<svg class="wheel" viewBox="0 0 400 400"></svg>';
-  const cx = 200, cy = 200, r1 = 82, r2 = 192;
-  const step = 360 / n;
-  const rad = a => (a * Math.PI) / 180;
-  const pt = (r, a) => [(cx + r * Math.sin(rad(a))).toFixed(2), (cy - r * Math.cos(rad(a))).toFixed(2)];
-  const total = grades.reduce((a, g) => a + Number(g.percent), 0) / n;
-  let defs = '<mask id="wheelMask" maskUnits="userSpaceOnUse" x="-50" y="-50" width="500" height="500"><circle class="wheel-reveal" cx="200" cy="200" r="140" fill="none" stroke="#fff" stroke-width="280" pathLength="100" transform="rotate(-90 200 200)"/></mask>';
-  let body = '';
-  grades.forEach((g, i) => {
-    const a1 = i * step + 0.6;
-    const a2 = (i + 1) * step - 0.6;
-    const mid = (a1 + a2) / 2;
-    const large = a2 - a1 > 180 ? 1 : 0;
-    const [x1, y1] = pt(r2, a1);
-    const [x2, y2] = pt(r2, a2);
-    const [x3, y3] = pt(r1, a2);
-    const [x4, y4] = pt(r1, a1);
-    const d = `M${x1} ${y1}A${r2} ${r2} 0 ${large} 1 ${x2} ${y2}L${x3} ${y3}A${r1} ${r1} 0 ${large} 0 ${x4} ${y4}Z`;
-    const bottom = mid > 90 && mid < 270;
-    const arc = (rc, fs, tag) => {
-      const rr = bottom ? rc + fs * 0.35 : rc - fs * 0.35;
-      const pad = 3;
-      const [sx, sy] = pt(rr, bottom ? a2 - pad : a1 + pad);
-      const [ex, ey] = pt(rr, bottom ? a1 + pad : a2 - pad);
-      defs += `<path id="wp${i}${tag}" d="M${sx} ${sy}A${rr.toFixed(2)} ${rr.toFixed(2)} 0 ${large} ${bottom ? 0 : 1} ${ex} ${ey}"/>`;
-    };
-    arc(166, 14, 'n');
-    arc(112, 24, 'l');
-    const dx = (Math.sin(rad(mid)) * 9).toFixed(2);
-    const dy = (-Math.cos(rad(mid)) * 9).toFixed(2);
-    body += `<g class="slice" data-subject="${esc(g.subject)}" style="--dx:${dx}px;--dy:${dy}px"><path d="${d}" style="fill:var(--s${(i % 6) + 1})"/><text class="wt" font-size="14"><textPath href="#wp${i}n" startOffset="50%" text-anchor="middle">${esc(g.subject)}</textPath></text><text class="wt-letter" font-size="24"><textPath href="#wp${i}l" startOffset="50%" text-anchor="middle">${esc(g.letter)}</textPath></text></g>`;
-  });
-  const center = `<text class="wc-letter" x="200" y="204" text-anchor="middle" font-size="40">${letterOf(total)}</text><text class="wc-pct" x="200" y="228" text-anchor="middle" font-size="15">${total.toFixed(1)}%</text>`;
-  return `<svg class="wheel" viewBox="0 0 400 400"><defs>${defs}</defs><g mask="url(#wheelMask)">${body}</g>${center}</svg>`;
-}
-
-function recordValue(record, keys) {
-  for (const key of keys) {
-    const value = record[key];
-    if (value == null) continue;
-    const text = String(value).trim();
-    if (text && !/^(n\/?a|none|null|-)$/i.test(text)) return text;
+function renderApp() {
+  $('#login-screen').classList.add('hidden');
+  $('#app').classList.remove('hidden');
+  if (currentUser) {
+    showToast(`Welcome, ${currentUser.first} ${currentUser.last}`);
+    if (currentUser.access === 'full') {
+      renderAdminDashboard();
+    } else {
+      renderTeacherDashboard();
+    }
   }
-  return '';
 }
 
-function recordMatchesStudent(record, student) {
-  const rawId = record.student_id;
-  if (rawId != null && String(rawId).trim() !== '' && Number.isFinite(Number(rawId)) && Number(rawId) > 0) return Number(rawId) === Number(student.id);
-  let name = recordValue(record, ['student_name', 'student_full_name', 'student']);
-  if (!name) name = [record.first_name, record.last_name].filter(Boolean).join(' ').trim();
-  if (!name) return false;
-  if (/^\d+$/.test(name)) return Number(name) === Number(student.id);
-  const clean = value => String(value || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ');
-  return clean(name) === clean(student.first_name + ' ' + student.last_name);
+function logout() {
+  currentUser = null;
+  localStorage.removeItem('albaseerah_user');
+  renderLogin();
 }
 
-function recordRawDate(record) {
-  return recordValue(record, ['datetime', 'timestamp', 'visit_datetime', 'created_at', 'submitted_at', 'date', 'record_date', 'visit_date', 'day']);
-}
-
-function recordTimestamp(record) {
-  const raw = recordRawDate(record);
-  if (!raw) return 0;
-  const time = recordValue(record, ['time', 'visit_time', 'check_in_time', 'time_of_visit']);
-  const withTime = time && !/[T ]\d{1,2}:\d{2}/.test(raw) ? raw + ' ' + time : raw;
-  const parsed = Date.parse(withTime);
-  return Number.isNaN(parsed) ? 0 : parsed;
-}
-
-function formatRecordWhen(record) {
-  const raw = recordRawDate(record);
-  const time = recordValue(record, ['time', 'visit_time', 'check_in_time', 'time_of_visit']);
-  if (!raw) return time || 'Date not provided';
-  const dayOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
-  const date = new Date(dayOnly ? raw + 'T12:00:00' : raw);
-  const dateText = Number.isNaN(date.getTime()) ? raw : date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  let embeddedTime = '';
-  if (!dayOnly && /[T ]\d{1,2}:\d{2}/.test(raw)) {
-    const timeDate = new Date(raw);
-    if (!Number.isNaN(timeDate.getTime())) embeddedTime = timeDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+function renderAdminDashboard() {
+  const container = $('#view-container');
+  const totalStudents = studentsData.length;
+  const totalStaff = teachersData.length;
+  const recentIncidents = recordsData.slice(-5).reverse();
+  let totalGradeSum = 0;
+  let gradeCount = 0;
+  for (const sheet in gradesData) {
+    const rows = gradesData[sheet];
+    if (rows.length < 2) continue;
+    const headers = rows[0];
+    const pointsIdx = headers.findIndex(h => h.toLowerCase().includes('points'));
+    if (pointsIdx === -1) continue;
+    for (let i = 1; i < rows.length; i++) {
+      const val = parseFloat(rows[i][pointsIdx]);
+      if (!isNaN(val)) {
+        totalGradeSum += val;
+        gradeCount++;
+      }
+    }
   }
-  return [dateText, time || embeddedTime].filter(Boolean).join(' · ');
-}
-
-function renderRecord(record) {
-  const location = recordValue(record, ['location', 'place', 'department', 'office', 'room']);
-  const type = recordValue(record, ['type', 'event_type', 'record_type', 'category', 'status']);
-  const incident = recordValue(record, ['incident', 'title', 'subject']);
-  const title = incident || location || type || 'Student record';
-  const reason = recordValue(record, ['reason', 'description', 'details', 'notes', 'what_happened', 'summary', 'comments', 'purpose', 'action']);
-  const staff = recordValue(record, ['staff', 'recorded_by', 'logged_by', 'created_by', 'staff_member', 'nurse', 'office_staff']);
-  const secondary = type && type.toLowerCase() !== title.toLowerCase() ? '<span class="record-kind">' + esc(type) + '</span>' : '';
-  return '<article class="record-entry"><div class="record-entry-top"><div class="record-title-wrap"><strong class="record-title">' + esc(title) + '</strong>' + secondary + '</div><time class="record-when">' + esc(formatRecordWhen(record)) + '</time></div>' + (reason ? '<p class="record-description">' + esc(reason) + '</p>' : '') + (staff ? '<div class="record-staff">Recorded by ' + esc(staff) + '</div>' : '') + '</article>';
-}
-
-function openStudent(id) {
-  const s = students.find(x => x.id === id);
-  if (!s) return;
-  currentId = id;
-  currentSubject = null;
-
-  const records = store.Records.filter(r => recordMatchesStudent(r, s)).sort((a, b) => recordTimestamp(b) - recordTimestamp(a) || (Number(b.id) || 0) - (Number(a.id) || 0));
-
-  const tier = s.grade <= 4 ? 'primary' : s.grade <= 8 ? 'middle' : 'upper';
-  const tm = teacherMap();
-  const planFor = t => store.Periods.filter(p => p.tier === t).sort((a, b) => a.period_no - b.period_no).map(p => ({ period_no: p.period_no, subject: p.subject, name: (tm[p.teacher_id] || {}).name || '', role: (tm[p.teacher_id] || {}).role || '' }));
-  let periods = planFor(tier);
-  if (!periods.length) periods = planFor('upper');
-  const schedule = periods.map(p => `<div class="row${p.role === 'Monitor' ? ' mute' : ''}"><span class="p-no">Period ${p.period_no}</span><span class="p-sub">${esc(p.subject)}</span><span class="p-t">${esc(p.name)}</span></div>`).join('');
-
-  let hifzRow = '';
-  if (s.has_hifz) {
-    const qt = store.Teachers.find(t => t.subject === "Qur'an");
-    hifzRow = `<div class="row hifz"><span class="p-no">Extra</span><span class="p-sub">Hifz · ${esc(s.hifz_level)}</span><span class="p-t">${esc(qt ? qt.name : '')}</span></div>`;
-  }
-
-  const contactMap = {};
-  store.Contacts.filter(c => c.student_id === id).forEach(c => { contactMap[c.relation] = c; });
-  const contacts = CONTACT_ORDER.map(rel => {
-    const c = contactMap[rel];
-    return c
-      ? `<div class="contact"><small>${rel}</small><div><b>${esc(c.name)}</b><span>${esc(c.phone)}</span></div></div>`
-      : `<div class="contact na"><small>${rel}</small><div><b>N/A</b></div></div>`;
-  }).join('');
-  const firstContact = CONTACT_ORDER.map(r => contactMap[r]).find(Boolean);
-  const phone = firstContact ? firstContact.phone : 'N/A';
-
-  const grades = store.Grades.filter(g => g.student_id === id).sort((a, b) => a.subject.localeCompare(b.subject));
-  const code = studentCode(s);
-  fabData = { email: s.email, phone: phone, code: code };
-
-  const recordsContent = records.length ? records.map(renderRecord).join('') : '<div class="records-empty"><i class="fa-regular fa-clipboard"></i><span>No records have been added for this student.</span></div>';
-  const recordsCard = showRecords ? `<div class="card popout g-records"><h3><i class="fa-solid fa-clipboard-list"></i> Records <span class="record-count">${records.length}</span></h3><div class="records-list">${recordsContent}</div></div>` : '';
-  const contCard = showContacts ? `<div class="card popout g-cont"><h3><i class="fa-solid fa-people-roof"></i> Guardian contacts</h3>${contacts}</div>` : '';
-
-  $('profileView').innerHTML = `
-    <div class="detail-bar">
-      <button type="button" class="back-btn" id="backList"><i class="fa-solid fa-arrow-left"></i> All students</button>
-      <span class="count">${code}</span>
+  const avgGrade = gradeCount > 0 ? (totalGradeSum / gradeCount).toFixed(1) : 'N/A';
+  container.innerHTML = `
+    <div class="stats-grid">
+      <div class="stat-card card">
+        <h3>Total Students</h3>
+        <div class="value">${totalStudents}</div>
+      </div>
+      <div class="stat-card card">
+        <h3>Total Staff</h3>
+        <div class="value">${totalStaff}</div>
+      </div>
+      <div class="stat-card card">
+        <h3>Average Grade</h3>
+        <div class="value">${avgGrade}</div>
+      </div>
+      <div class="stat-card card">
+        <h3>Recent Incidents</h3>
+        <div class="value">${recentIncidents.length}</div>
+      </div>
     </div>
-    <div class="hero popout" id="hero">
-      <img class="hero-avatar" src="${DEFAULT_PFP}" alt="">
-      <div class="hero-info">
-        <div class="name-row"><h2>${esc(s.first_name)} ${esc(s.last_name)}</h2><span class="sid">${code}</span></div>
-        <div class="chips">
-          <span class="chip">${gradeName(s.grade)}</span>
-          ${s.has_hifz ? `<span class="chip gold"><i class="fa-solid fa-book-quran"></i> Hifz · ${esc(s.hifz_level)}</span>` : ''}
+    <h3 style="margin-bottom:16px;color:var(--maroon)">SMS Features</h3>
+    <div class="helpdesk-grid">
+      <div class="helpdesk-card" data-feature="admissions"><div class="icon">📝</div><h4>Admissions</h4></div>
+      <div class="helpdesk-card" data-feature="finder"><div class="icon">🔍</div><h4>Student Finder</h4></div>
+      <div class="helpdesk-card" data-feature="staffdir"><div class="icon">👥</div><h4>Staff Directory</h4></div>
+      <div class="helpdesk-card" data-feature="iep"><div class="icon">📋</div><h4>Individual Needs</h4></div>
+      <div class="helpdesk-card" data-feature="behavior"><div class="icon">⚠️</div><h4>Behavior Log</h4></div>
+      <div class="helpdesk-card" data-feature="rubrics"><div class="icon">📊</div><h4>Rubrics</h4></div>
+      <div class="helpdesk-card" data-feature="lesson"><div class="icon">📚</div><h4>Lesson Planning</h4></div>
+      <div class="helpdesk-card" data-feature="exams"><div class="icon">📝</div><h4>Exam Tracking</h4></div>
+      <div class="helpdesk-card" data-feature="timetable"><div class="icon">📅</div><h4>Timetable</h4></div>
+      <div class="helpdesk-card" data-feature="badges"><div class="icon">🏆</div><h4>Badges</h4></div>
+      <div class="helpdesk-card" data-feature="helpdesk"><div class="icon">🆘</div><h4>Help Desk</h4></div>
+      <div class="helpdesk-card" data-feature="info"><div class="icon">🔗</div><h4>Info Grid</h4></div>
+    </div>
+  `;
+  $$('.helpdesk-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const feature = card.dataset.feature;
+      handleAdminFeature(feature);
+    });
+  });
+}
+
+function renderTeacherDashboard() {
+  const container = $('#view-container');
+  const teacherPeriods = getTeacherPeriods(currentUser.id);
+  const currentPeriod = getCurrentPeriod();
+  let todayPeriods = teacherPeriods.filter(p => p.period_no === String(currentPeriod));
+  if (todayPeriods.length === 0) {
+    todayPeriods = teacherPeriods;
+  }
+  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Hi, ${currentUser.first}</h2>`;
+  if (todayPeriods.length === 0) {
+    html += `<p>No classes scheduled for today.</p>`;
+  } else {
+    todayPeriods.forEach(period => {
+      const students = getStudentsForPeriod(period);
+      html += `<div class="card" style="margin-bottom:20px">
+        <h3 style="color:var(--maroon);margin-bottom:12px">${period.subject} (Period ${period.period_no})</h3>
+        <div class="student-grid">`;
+      students.forEach((student, idx) => {
+        const fullName = `${student.first_name} ${student.last_name}`;
+        html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
+          <h4>${fullName}</h4>
+          <p style="font-size:12px;color:#666">Grade ${student.grade}</p>
+          <div class="attendance-toggle" data-student="${student.id || fullName}" data-period="${period.id}">
+            <button class="att-btn present active" data-status="present">Present</button>
+            <button class="att-btn late" data-status="late">Late</button>
+            <button class="att-btn absent" data-status="absent">Absent</button>
+          </div>
+          <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
+            <label style="font-size:12px;font-weight:600">Score:</label>
+            <input type="number" class="grade-input" data-student="${student.id || fullName}" data-period="${period.id}" placeholder="0">
+          </div>
+        </div>`;
+      });
+      html += `</div></div>`;
+    });
+  }
+  container.innerHTML = html;
+  $$('.att-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const parent = e.target.closest('.attendance-toggle');
+      parent.querySelectorAll('.att-btn').forEach(b => b.classList.remove('active'));
+      e.target.classList.add('active');
+    });
+  });
+  $$('.grade-input').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const student = e.target.dataset.student;
+      const period = e.target.dataset.period;
+      const score = e.target.value;
+      saveGrade(student, period, score);
+    });
+  });
+}
+
+function saveGrade(student, period, score) {
+  showToast(`Score ${score} saved for ${student}`);
+}
+
+function handleAdminFeature(feature) {
+  switch (feature) {
+    case 'admissions':
+      showModal('<h2>Admissions Workflow</h2><p>Application management UI here.</p>');
+      break;
+    case 'finder':
+      showModal('<h2>Fast Student Finder</h2><input type="text" id="finder-input" placeholder="Search students..." style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:8px"><div id="finder-results"></div>');
+      $('#finder-input').addEventListener('input', (e) => {
+        const q = e.target.value.toLowerCase();
+        const results = studentsData.filter(s => `${s.first_name} ${s.last_name}`.toLowerCase().includes(q));
+        $('#finder-results').innerHTML = results.map(s => `<div style="padding:8px;border-bottom:1px solid #eee">${s.first_name} ${s.last_name} (Grade ${s.grade})</div>`).join('');
+      });
+      break;
+    case 'staffdir':
+      showModal('<h2>Staff Directory</h2>' + teachersData.map(t => `<div style="padding:8px;border-bottom:1px solid #eee">${t.first} ${t.last} - ${t.subject} (${t.access})</div>`).join(''));
+      break;
+    case 'iep':
+      showModal('<h2>Individual Needs (IEPs)</h2><p>Accommodations management UI.</p>');
+      break;
+    case 'behavior':
+      showModal('<h2>Behavior / Discipline Logging</h2><p>Log incidents here.</p>');
+      break;
+    case 'rubrics':
+      showModal('<h2>Rubrics</h2><p>Rubric management UI.</p>');
+      break;
+    case 'lesson':
+      showModal('<h2>Lesson Planning</h2><p>Lesson plan UI.</p>');
+      break;
+    case 'exams':
+      showModal('<h2>Exam Tracking</h2><p>Exam tracking UI.</p>');
+      break;
+    case 'timetable':
+      showModal('<h2>Timetable</h2><p>Google Calendar integration placeholder.</p>');
+      break;
+    case 'badges':
+      showModal('<h2>Badges & Rewards</h2><p>Badge system UI.</p>');
+      break;
+    case 'helpdesk':
+      showModal('<h2>Help Desk</h2><p>Submit IT/admin requests.</p>');
+      break;
+    case 'info':
+      showModal('<h2>Info Grid</h2><div class="info-grid"><div class="info-card"><h4>IXL</h4></div><div class="info-card"><h4>Khan Academy</h4></div><div class="info-card"><h4>Google Classroom</h4></div></div>');
+      break;
+  }
+}
+
+function renderRecords() {
+  const container = $('#view-container');
+  let incidentCounts = {};
+  recordsData.forEach(r => {
+    const student = r.student || 'Unknown';
+    incidentCounts[student] = (incidentCounts[student] || 0) + 1;
+  });
+  const maxIncidents = 50;
+  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Records</h2>`;
+  html += `<div class="records-bar-container"><div class="records-bar"><div class="records-marker" style="left:0%"></div></div></div>`;
+  html += `<div id="records-list">`;
+  const sortedStudents = studentsData.slice().sort((a, b) => {
+    const nameA = `${a.first_name} ${a.last_name}`;
+    const nameB = `${b.first_name} ${b.last_name}`;
+    const countA = incidentCounts[nameA] || 0;
+    const countB = incidentCounts[nameB] || 0;
+    return countB - countA;
+  });
+  sortedStudents.forEach(s => {
+    const name = `${s.first_name} ${s.last_name}`;
+    const count = incidentCounts[name] || 0;
+    const percent = Math.min((count / maxIncidents) * 100, 100);
+    html += `<div class="card" style="margin-bottom:12px;cursor:pointer" data-student="${name}" data-count="${count}">
+      <h4>${name}</h4>
+      <p style="font-size:12px;color:#666">Incidents: ${count}</p>
+      <div class="records-bar-container" style="margin:8px 0">
+        <div class="records-bar"><div class="records-marker" style="left:${percent}%"></div></div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
+  container.innerHTML = html;
+  $$('.card[data-student]').forEach(card => {
+    card.addEventListener('click', () => {
+      const student = card.dataset.student;
+      showRecordsPage(student);
+    });
+  });
+}
+
+function showRecordsPage(studentName) {
+  const container = $('#view-container');
+  const studentRecords = recordsData.filter(r => r.student === studentName);
+  const absences = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('absence')).length;
+  const excused = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('excused')).length;
+  const tardies = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('tardy')).length;
+  const presents = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('present')).length;
+  const incidents = studentRecords.length;
+  container.innerHTML = `
+    <button id="back-to-records" class="btn-primary" style="width:auto;padding:8px 16px;margin-bottom:16px">← Back</button>
+    <h2 style="color:var(--maroon);margin-bottom:20px">Records for ${studentName}</h2>
+    <div class="histogram-container"><canvas id="histogram-chart"></canvas></div>
+    <div id="records-detail-list">
+      ${studentRecords.map(r => `<div class="card" style="margin-bottom:8px"><strong>${r.date || 'N/A'}</strong> - ${r.incident || 'N/A'} (${r.action || 'N/A'}) at ${r.location || 'N/A'}</div>`).join('')}
+    </div>
+  `;
+  $('#back-to-records').addEventListener('click', renderRecords);
+  const ctx = document.getElementById('histogram-chart').getContext('2d');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: ['Absences', 'Excused', 'Tardies', 'Presents', 'Incidents'],
+      datasets: [{
+        label: 'Count',
+        data: [absences, excused, tardies, presents, incidents],
+        backgroundColor: ['#3498db', '#f39c12', '#e67e22', '#27ae60', '#e74c3c']
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false }
+      },
+      scales: {
+        y: { beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderStudents() {
+  const container = $('#view-container');
+  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Students</h2><div class="student-grid">`;
+  studentsData.forEach((student, idx) => {
+    html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
+      <h4>${student.first_name} ${student.last_name}</h4>
+      <p style="font-size:12px;color:#666">Grade ${student.grade}</p>
+      <p style="font-size:12px;color:#666">${student.email || ''}</p>
+    </div>`;
+  });
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function renderStaff() {
+  const container = $('#view-container');
+  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Staff Directory</h2><div class="student-grid">`;
+  teachersData.forEach((teacher, idx) => {
+    html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
+      <h4>${teacher.first} ${teacher.last}</h4>
+      <p style="font-size:12px;color:#666">${teacher.subject || ''}</p>
+      <p style="font-size:12px;color:#666">${teacher.email || ''}</p>
+    </div>`;
+  });
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+function renderMessages() {
+  const container = $('#view-container');
+  container.innerHTML = `
+    <h2 style="color:var(--maroon);margin-bottom:20px">Unified Messenger</h2>
+    <div class="messenger-container">
+      <div class="messenger-list">
+        <div class="messenger-item"><strong>Announcements</strong><br><span style="font-size:12px;color:#666">School-wide</span></div>
+        <div class="messenger-item"><strong>Staff Room</strong><br><span style="font-size:12px;color:#666">All staff</span></div>
+        <div class="messenger-item"><strong>Parents</strong><br><span style="font-size:12px;color:#666">Grade 5 parents</span></div>
+      </div>
+      <div class="messenger-chat">
+        <div class="messenger-messages" id="msg-messages"></div>
+        <div class="messenger-input-area">
+          <input type="text" id="msg-input" placeholder="Type a message...">
+          <button id="msg-send" class="btn-primary" style="width:auto;padding:10px 20px">Send</button>
         </div>
       </div>
-      <a class="email-pill" href="${gmailLink(s.email)}" target="_blank" rel="noopener"><i class="fa-regular fa-envelope"></i><span>${esc(s.email)}</span></a>
     </div>
-    <div class="profile-grid${showRecords ? '' : ' no-records'}${showContacts ? '' : ' no-cont'}">
-      ${recordsCard}
-      <div class="card popout g-wheel wheel-card">
-        <h3><i class="fa-solid fa-chart-pie"></i> Grades</h3>
-        ${wheel(grades)}
-      </div>
-      <div class="card popout g-addr">
-        <h3><i class="fa-solid fa-location-dot"></i> Address</h3>
-        <div class="addr-row"><span>Street</span><b>${esc(s.street)}</b></div>
-        <div class="addr-row"><span>City</span><b>${esc(s.city)}</b></div>
-        <div class="addr-row"><span>State · ZIP</span><b>${esc(s.state)} ${esc(s.zip)}</b></div>
-        <div class="addr-row"><span>Country</span><b>United States</b></div>
-      </div>
-      <div class="card popout g-sched">
-        <h3><i class="fa-solid fa-clock"></i> Daily schedule</h3>
-        ${schedule}${hifzRow}
-      </div>
-      ${contCard}
-    </div>`;
-
-  showView('profile', `${s.first_name} ${s.last_name}`);
-  window.scrollTo(0, 0);
-  setSmart(`<img src="${DEFAULT_PFP}" alt=""><strong>${esc(s.first_name)} ${esc(s.last_name)}</strong><span class="sb-id">${code}</span><span class="sb-mail"><i class="fa-regular fa-envelope"></i>${esc(s.email)}</span><span><i class="fa-solid fa-phone"></i>${esc(phone)}</span>`, $('hero'));
-
-  $('backList').onclick = goList;
-  $('profileView').querySelectorAll('.slice').forEach(g => {
-    g.onclick = () => openGradesPage(id, g.dataset.subject);
-  });
-}
-
-function refreshProfile() {
-  if (view !== 'profile' || currentId == null) return;
-  const y = window.scrollY;
-  openStudent(currentId);
-  window.scrollTo(0, y);
-}
-
-function niceStep(range, target) {
-  const raw = range / target;
-  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
-  const f = raw / mag;
-  return (f < 1.5 ? 1 : f < 3 ? 2 : f < 7 ? 5 : 10) * mag;
-}
-
-function buildChart(holder, items) {
-  const W = 900, H = 380, yW = 58, xH = 32;
-  const pL = yW, pR = W, pB = H - xH;
-  const pW = pR - pL, pH = pB;
-  const n = items.length;
-  const pcts = items.map(it => (it.score / it.max) * 100);
-  const X0 = -1, X1 = n;
-  const Y0 = Math.max(0, Math.floor((Math.min(...pcts) - 8) / 5) * 5);
-  let Y1 = Math.min(110, Math.ceil((Math.max(...pcts) + 5) / 5) * 5);
-  if (Y1 < Y0 + 10) Y1 = Y0 + 10;
-  const MAXZ = 25;
-  let vx0 = X0, vx1 = X1, vy0 = Y0, vy1 = Y1;
-  let drag = null;
-
-  holder.innerHTML = `<svg class="tv" viewBox="0 0 ${W} ${H}">
-    <defs>
-      <clipPath id="tvClipPlot"><rect x="${pL}" y="0" width="${pW}" height="${pH}"/></clipPath>
-      <clipPath id="tvClipY"><rect x="0" y="0" width="${yW}" height="${pB}"/></clipPath>
-      <clipPath id="tvClipX"><rect x="${pL}" y="${pB}" width="${pW}" height="${xH}"/></clipPath>
-      <linearGradient id="tvArea" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#6b1e2e" stop-opacity="0.26"/><stop offset="100%" stop-color="#6b1e2e" stop-opacity="0"/></linearGradient>
-    </defs>
-    <rect x="${pL}" y="0" width="${pW}" height="${pH}" style="fill:var(--surface)"/>
-    <g clip-path="url(#tvClipPlot)">
-      <g id="tvGrid"></g>
-      <path id="tvAreaPath" fill="url(#tvArea)"/>
-      <path id="tvLine" class="line-path"/>
-      <g id="tvDots"></g>
-      <g id="tvTargets"></g>
-    </g>
-    <rect x="0" y="0" width="${yW}" height="${H}" style="fill:var(--surface-2)"/>
-    <rect x="${pL}" y="${pB}" width="${pW}" height="${xH}" style="fill:var(--surface-2)"/>
-    <line class="axis-line" x1="${pL}" x2="${pL}" y1="0" y2="${H}"/>
-    <line class="axis-line" x1="0" x2="${W}" y1="${pB}" y2="${pB}"/>
-    <g clip-path="url(#tvClipY)" id="tvYLabels"></g>
-    <g clip-path="url(#tvClipX)" id="tvXLabels"></g>
-  </svg>`;
-
-  const svg = holder.querySelector('svg');
-  const gridEl = svg.querySelector('#tvGrid');
-  const yEl = svg.querySelector('#tvYLabels');
-  const xEl = svg.querySelector('#tvXLabels');
-  const lineEl = svg.querySelector('#tvLine');
-  const areaEl = svg.querySelector('#tvAreaPath');
-  const dotsEl = svg.querySelector('#tvDots');
-  const targetsEl = svg.querySelector('#tvTargets');
-  const tip = $('chartTooltip');
-
-  dotsEl.innerHTML = items.map((it, i) => `<circle class="data-point" r="3.5" data-i="${i}" data-title="${esc(it.title)}" data-score="${it.score}/${it.max}" data-date="${shortDate(it.day)}" data-avg="${it.avg.toFixed(1)}"/>`).join('');
-  targetsEl.innerHTML = items.map((it, i) => `<circle class="hover-target" r="10" data-i="${i}"/>`).join('');
-  const dots = Array.from(dotsEl.children);
-  const targets = Array.from(targetsEl.children);
-
-  const sx = i => pL + ((i - vx0) / (vx1 - vx0)) * pW;
-  const sy = p => pB - ((p - vy0) / (vy1 - vy0)) * pH;
-  const ix = px => vx0 + ((px - pL) / pW) * (vx1 - vx0);
-  const iy = py => vy0 + ((pB - py) / pH) * (vy1 - vy0);
-
-  function clampView() {
-    const w = vx1 - vx0;
-    const h = vy1 - vy0;
-    if (vx0 < X0) { vx0 = X0; vx1 = X0 + w; }
-    if (vx1 > X1) { vx1 = X1; vx0 = X1 - w; }
-    if (vy0 < Y0) { vy0 = Y0; vy1 = Y0 + h; }
-    if (vy1 > Y1) { vy1 = Y1; vy0 = Y1 - h; }
-  }
-
-  function zoomAt(factor, ax, ay) {
-    const full = X1 - X0;
-    const cur = vx1 - vx0;
-    const nw = Math.min(full, Math.max(full / MAXZ, cur / factor));
-    const ratio = nw / cur;
-    const nh = (vy1 - vy0) * ratio;
-    vx0 = ax - (ax - vx0) * ratio;
-    vx1 = vx0 + nw;
-    vy0 = ay - (ay - vy0) * ratio;
-    vy1 = vy0 + nh;
-    clampView();
-  }
-
-  function render() {
-    const ys = niceStep(vy1 - vy0, 6);
-    const yt = [];
-    for (let v = Math.ceil(vy0 / ys - 1e-9) * ys; v <= vy1 + 1e-9; v += ys) yt.push(+v.toFixed(4));
-    const xs = Math.max(1, niceStep(vx1 - vx0, 8));
-    const xt = [];
-    for (let l = Math.ceil((vx0 + 1) / xs - 1e-9) * xs; l - 1 <= vx1 + 1e-9; l += xs) {
-      if (l >= 1 && l <= n) xt.push(l);
+  `;
+  $('#msg-send').addEventListener('click', () => {
+    const input = $('#msg-input');
+    if (input.value.trim()) {
+      const msg = document.createElement('div');
+      msg.className = 'chat-msg user';
+      msg.style.margin = '8px 0';
+      msg.textContent = input.value;
+      $('#msg-messages').appendChild(msg);
+      input.value = '';
     }
-    gridEl.innerHTML = yt.map(v => `<line class="grid-line" x1="${pL}" x2="${pR}" y1="${sy(v).toFixed(1)}" y2="${sy(v).toFixed(1)}"/>`).join('') + xt.map(l => `<line class="grid-line" y1="0" y2="${pB}" x1="${sx(l - 1).toFixed(1)}" x2="${sx(l - 1).toFixed(1)}"/>`).join('');
-    yEl.innerHTML = yt.map(v => `<text class="axis-text" font-size="11" x="${yW - 8}" y="${(sy(v) + 4).toFixed(1)}" text-anchor="end">${v}</text>`).join('');
-    xEl.innerHTML = xt.map(l => `<text class="axis-text" font-size="11" x="${sx(l - 1).toFixed(1)}" y="${pB + 20}" text-anchor="middle">${l}</text>`).join('');
-    let d = '';
-    items.forEach((it, i) => {
-      const x = sx(i);
-      const y = sy(pcts[i]);
-      d += `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
-      dots[i].setAttribute('cx', x.toFixed(1));
-      dots[i].setAttribute('cy', y.toFixed(1));
-      targets[i].setAttribute('cx', x.toFixed(1));
-      targets[i].setAttribute('cy', y.toFixed(1));
-    });
-    lineEl.setAttribute('d', d);
-    areaEl.setAttribute('d', `${d}L${sx(n - 1).toFixed(1)} ${pB}L${sx(0).toFixed(1)} ${pB}Z`);
-  }
-
-  function toSvg(e) {
-    const r = svg.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) * W) / r.width, y: ((e.clientY - r.top) * H) / r.height };
-  }
-
-  function hideTip() {
-    tip.classList.remove('show');
-    dots.forEach(p => p.setAttribute('r', 3.5));
-  }
-
-  svg.addEventListener('wheel', e => {
-    const p = toSvg(e);
-    if (p.x < pL || p.y > pB) return;
-    e.preventDefault();
-    zoomAt(e.deltaY < 0 ? 1.18 : 1 / 1.18, ix(p.x), iy(p.y));
-    render();
-    hideTip();
-  }, { passive: false });
-
-  svg.addEventListener('pointerdown', e => {
-    if (e.button !== 0) return;
-    const p = toSvg(e);
-    if (p.x < pL || p.y > pB) return;
-    drag = p;
-    svg.setPointerCapture(e.pointerId);
-    svg.classList.add('dragging');
-    hideTip();
   });
-
-  svg.addEventListener('pointermove', e => {
-    if (!drag) return;
-    const p = toSvg(e);
-    const w = vx1 - vx0;
-    const h = vy1 - vy0;
-    vx0 -= ((p.x - drag.x) / pW) * w;
-    vx1 = vx0 + w;
-    vy0 += ((p.y - drag.y) / pH) * h;
-    vy1 = vy0 + h;
-    clampView();
-    drag = p;
-    render();
-  });
-
-  const endDrag = () => {
-    drag = null;
-    svg.classList.remove('dragging');
-  };
-  svg.addEventListener('pointerup', endDrag);
-  svg.addEventListener('pointercancel', endDrag);
-
-  svg.addEventListener('mouseover', e => {
-    const t = e.target.closest('.hover-target');
-    if (!t || drag) return;
-    const p = dots[Number(t.dataset.i)];
-    p.setAttribute('r', 7);
-    tip.innerHTML = `<strong>${p.dataset.title}</strong><div class="tt-row"><span>Score</span><b>${p.dataset.score}</b></div><div class="tt-row"><span>Date</span><b>${p.dataset.date}</b></div><div class="tt-row tt-avg"><span>Class average</span><b>${p.dataset.avg}%</b></div>`;
-    const rect = p.getBoundingClientRect();
-    tip.style.left = rect.left + rect.width / 2 + window.scrollX + 'px';
-    tip.style.top = rect.top + window.scrollY + 'px';
-    tip.classList.add('show');
-  });
-
-  svg.addEventListener('mouseout', e => {
-    if (e.target.closest('.hover-target')) hideTip();
-  });
-
-  render();
 }
 
-function openGradesPage(studentId, subject) {
-  const s = students.find(x => x.id === studentId);
-  if (!s) return;
-  currentId = studentId;
-  currentSubject = subject;
-  studentSubjects = store.Grades.filter(g => g.student_id === studentId).map(g => g.subject).sort();
-  const items = store.Items.filter(it => it.student_id === studentId && it.subject === subject).map(it => ({ id: it.id, title: it.title, type: it.type, score: it.score, max: it.max_score, day: it.day })).sort((a, b) => a.day.localeCompare(b.day) || a.id - b.id);
-  const g = store.Grades.find(x => x.student_id === studentId && x.subject === subject) || { letter: '-', percent: 0 };
-
-  const sums = {};
-  store.Items.forEach(it => {
-    if (it.subject !== subject) return;
-    const k = it.title + '|' + it.day;
-    const o = sums[k] || (sums[k] = { t: 0, n: 0 });
-    o.t += it.max_score ? (it.score / it.max_score) * 100 : 0;
-    o.n++;
-  });
-  items.forEach(it => {
-    const o = sums[it.title + '|' + it.day];
-    it.avg = o ? o.t / o.n : 0;
-  });
-
-  const counts = [0, 0, 0, 0];
-  items.forEach(it => {
-    const p = (it.score / it.max) * 100;
-    if (p < 50) counts[0]++;
-    else if (p < 70) counts[1]++;
-    else if (p < 90) counts[2]++;
-    else counts[3]++;
-  });
-  const distSegs = [
-    { label: 'Below 50%', v: counts[0], color: 'var(--red)' },
-    { label: '50-70%', v: counts[1], color: 'var(--amber)' },
-    { label: '70-90%', v: counts[2], color: 'var(--blue)' },
-    { label: 'Above 90%', v: counts[3], color: 'var(--green)' }
-  ];
-
-  const rows = items.slice().reverse().map(it => {
-    const p = (it.score / it.max) * 100;
-    const cls = p >= 90 ? ' good' : p < 70 ? ' bad' : '';
-    const dateLabel = it.day ? shortDate(it.day) : 'Date unavailable';
-    return `<div class="assign-row"><span class="type-badge ${esc(it.type || 'Grade').toLowerCase()}">${esc(it.type || 'Grade')}</span><span class="a-title">${esc(it.title || 'Assignment')}</span><span class="a-date">${esc(dateLabel)}</span><span class="a-score${cls}">${fmtScore(it.score, it.max)}</span></div>`;
-  }).join('');
-  const detailCards = items.length ? `
-      <div class="card full"><h3><i class="fa-solid fa-chart-line"></i> Progress Over Time</h3><div id="chartHolder"></div></div>
-      <div class="card popout"><h3><i class="fa-solid fa-chart-pie"></i> Score Distribution</h3><div class="pie-wrap">${ring(distSegs, 8, 16)}${legend(distSegs)}</div></div>
-      <div class="card popout"><h3><i class="fa-solid fa-list-check"></i> All Assignments</h3><div class="assign-list">${rows}</div></div>` : `<div class="card full"><h3><i class="fa-solid fa-chart-line"></i> Grade Details</h3><p class="records-empty">The workbook provides scores for this subject but does not include assignment titles or dates. The displayed grade is averaged from the available scores.</p></div>`;
-
-  $('gradesView').innerHTML = `
-    <div class="detail-bar">
-      <button type="button" class="back-btn" id="backProfile"><i class="fa-solid fa-arrow-left"></i> Back to Profile</button>
-      <span class="big-subject">${esc(subject)}</span>
+function renderHelpdesk() {
+  const container = $('#view-container');
+  container.innerHTML = `
+    <h2 style="color:var(--maroon);margin-bottom:20px">Help Desk</h2>
+    <div class="helpdesk-grid">
+      <div class="helpdesk-card"><div class="icon">🖥️</div><h4>IT Support</h4></div>
+      <div class="helpdesk-card"><div class="icon">📋</div><h4>Admin Requests</h4></div>
+      <div class="helpdesk-card"><div class="icon">🔧</div><h4>Maintenance</h4></div>
     </div>
-    <div class="hero grades-hero popout" id="gHero">
-      <div class="g-info"><h2>${esc(s.first_name)} ${esc(s.last_name)}</h2><span>${gradeName(s.grade)} · ${studentCode(s)}</span></div>
-      <div class="g-badge"><b>${esc(g.letter)}</b><span>${Number(g.percent).toFixed(1)}%</span></div>
+    <div style="margin-top:20px">
+      <h3 style="color:var(--maroon);margin-bottom:12px">Submit a Request</h3>
+      <textarea id="helpdesk-desc" placeholder="Describe your issue..." style="width:100%;height:100px;padding:12px;border:1px solid #ddd;border-radius:8px;font-family:inherit"></textarea>
+      <button id="helpdesk-submit" class="btn-primary" style="width:auto;padding:10px 24px;margin-top:12px">Submit</button>
     </div>
-    <div class="grades-grid">${detailCards}</div>`;
-
-  showView('grades', `${s.first_name}'s ${subject}`);
-  window.scrollTo(0, 0);
-  setSmart(`<strong>${esc(subject)}</strong><span>${esc(s.first_name)} ${esc(s.last_name)}</span>`, $('gHero'));
-  $('backProfile').onclick = () => openStudent(studentId);
-  if (items.length && $('chartHolder')) buildChart($('chartHolder'), items);
-}
-
-function openGradesDir(subject) {
-  dirSubject = subject;
-  const subjOpts = allSubjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
-  $('gradesDirView').innerHTML = `<div class="intro"><h2>${esc(subject)}</h2></div>
-    <div class="filter-bar">
-      <select id="dirSubject">${subjOpts}</select>
-      <select id="dirGradeSel">${gradeOptions()}</select>
-      <select id="dirLetterSel"><option value="all">All letters</option><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option><option value="F">F</option></select>
-      <select id="dirPerfSel"><option value="all">All ranges</option><option value="high">Above 90%</option><option value="mid">70% - 89%</option><option value="low">Below 70%</option></select>
-      <span class="fb-sep"></span>
-      <select id="dirSortSel"><option value="name">Sort: Last Name (A-Z)</option><option value="grade">Sort: Grade Level (Low to High)</option><option value="high">Sort: Highest Grade (100% - 0%)</option><option value="low">Sort: Lowest Grade (0% - 100%)</option></select>
-    </div>
-    <div id="dirGrid"></div>`;
-  showView('gradesDir', subject);
-  window.scrollTo(0, 0);
-  $('dirSubject').value = subject;
-  $('dirGradeSel').value = dirGrade;
-  $('dirLetterSel').value = dirLetter;
-  $('dirPerfSel').value = dirPerf;
-  $('dirSortSel').value = dirSort;
-  $('dirSubject').onchange = e => openGradesDir(e.target.value);
-  $('dirGradeSel').onchange = e => { dirGrade = e.target.value; renderDir(); };
-  $('dirLetterSel').onchange = e => { dirLetter = e.target.value; renderDir(); };
-  $('dirPerfSel').onchange = e => { dirPerf = e.target.value; renderDir(); };
-  $('dirSortSel').onchange = e => { dirSort = e.target.value; renderDir(); };
-  $('dirGrid').onclick = e => {
-    const c = e.target.closest('.student-card');
-    if (c) openGradesPage(Number(c.dataset.id), dirSubject);
-  };
-  bindTilt($('dirGrid'));
-  renderDir();
-}
-
-function renderDir() {
-  const grid = $('dirGrid');
-  if (!grid) return;
-  grid.className = gridClass();
-  const byName = (a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name);
-  const rows = dirRows()
-    .filter(matchTerm)
-    .filter(r => dirGrade === 'all' || r.grade === Number(dirGrade))
-    .filter(r => dirLetter === 'all' || String(r.letter).charAt(0) === dirLetter)
-    .filter(r => {
-      const p = Number(r.percent);
-      return dirPerf === 'all' || (dirPerf === 'high' ? p >= 90 : dirPerf === 'mid' ? p >= 70 && p < 90 : p < 70);
-    });
-  rows.sort(dirSort === 'grade' ? (a, b) => a.grade - b.grade || byName(a, b) : dirSort === 'high' ? (a, b) => b.percent - a.percent || byName(a, b) : dirSort === 'low' ? (a, b) => a.percent - b.percent || byName(a, b) : byName);
-  if (observer) observer.disconnect();
-  if (!rows.length) {
-    grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-magnifying-glass"></i><h3>No matches</h3></div>';
-    return;
-  }
-  grid.innerHTML = rows.map(r => cardHtml(r, `${esc(r.letter)} · ${Number(r.percent).toFixed(1)}%`)).join('');
-  observeCards(grid);
-}
-
-function rerenderCurrent() {
-  if (view === 'list' && students.length) renderList();
-  else if (view === 'gradesDir') renderDir();
-}
-
-function openSettings() {
-  $('overlay').hidden = false;
-}
-
-function closeSettings() {
-  $('overlay').hidden = true;
-}
-
-function setTab(name) {
-  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
-  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + name));
-}
-
-function revealSetting(entry) {
-  openSettings();
-  setTab(entry.tab);
-  setTimeout(() => {
-    const el = $(entry.id);
-    const box = el.closest('.field') || el.closest('.import-card') || el;
-    box.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
-    box.classList.add('hl');
-    setTimeout(() => box.classList.remove('hl'), 2200);
-  }, 60);
-}
-
-function pageEntries() {
-  const list = [
-    { label: 'Home', sub: 'Page', icon: 'fa-house', run: goList },
-    { label: 'Dashboards', sub: 'Page', icon: 'fa-chart-pie', run: () => { if (students.length) openStudent(students[0].id); } }
-  ];
-  allSubjects.forEach(s => list.push({ label: 'Grades · ' + s, sub: 'Page', icon: 'fa-graduation-cap', run: () => openGradesDir(s) }));
-  return list;
-}
-
-function computePalette(raw) {
-  let mode = 'all';
-  let term = raw.trim().toLowerCase();
-  if (term[0] === '@') {
-    mode = 'people';
-    term = term.slice(1).trim();
-  } else if (term[0] === '?') {
-    mode = 'settings';
-    term = term.slice(1).trim();
-  }
-  const groups = [];
-  if (mode === 'all') {
-    const pages = pageEntries().filter(p => !term || p.label.toLowerCase().includes(term));
-    if (pages.length) groups.push({ title: 'Pages', items: pages });
-  }
-  if ((mode === 'all' && term) || mode === 'people') {
-    const people = students.filter(s => !term || haystack(s).includes(term)).slice(0, 8).map(s => ({ label: `${s.first_name} ${s.last_name}`, sub: `${gradeName(s.grade)} · ${studentCode(s)}`, icon: 'fa-user', run: () => openStudent(s.id) }));
-    if (people.length) groups.push({ title: 'People', items: people });
-  }
-  if ((mode === 'all' && term) || mode === 'settings') {
-    const found = SETTINGS_INDEX.filter(x => !term || (x.label + ' ' + x.keys).toLowerCase().includes(term)).map(x => ({ label: x.label, sub: 'Setting', icon: 'fa-sliders', run: () => revealSetting(x) }));
-    if (found.length) groups.push({ title: 'Settings', items: found });
-  }
-  return groups;
-}
-
-function renderPalette() {
-  const groups = computePalette($('paletteInput').value);
-  paletteItems = [];
-  let html = '';
-  groups.forEach(g => {
-    html += `<div class="palette-group">${g.title}</div>`;
-    g.items.forEach(it => {
-      html += `<button type="button" class="palette-item${paletteItems.length === paletteIdx ? ' active' : ''}" data-i="${paletteItems.length}"><i class="fa-solid ${it.icon}"></i><span class="pi-label">${esc(it.label)}</span><span class="pi-sub">${esc(it.sub)}</span></button>`;
-      paletteItems.push(it);
-    });
+  `;
+  $('#helpdesk-submit').addEventListener('click', () => {
+    const desc = $('#helpdesk-desc').value;
+    if (desc.trim()) {
+      showToast('Help desk request submitted!');
+      $('#helpdesk-desc').value = '';
+    }
   });
-  if (!paletteItems.length) html = '<div class="palette-empty">No results</div>';
-  $('paletteResults').innerHTML = html;
-  const active = $('paletteResults').querySelector('.palette-item.active');
-  if (active) active.scrollIntoView({ block: 'nearest' });
 }
 
-function openPalette() {
-  $('palette').hidden = false;
-  $('paletteInput').value = '';
-  paletteIdx = 0;
-  renderPalette();
-  $('paletteInput').focus();
+function renderInfoGrid() {
+  const container = $('#view-container');
+  container.innerHTML = `
+    <h2 style="color:var(--maroon);margin-bottom:20px">Quick Links</h2>
+    <div class="info-grid">
+      <div class="info-card"><h4>IXL</h4></div>
+      <div class="info-card"><h4>Khan Academy</h4></div>
+      <div class="info-card"><h4>Google Classroom</h4></div>
+      <div class="info-card"><h4>Canvas</h4></div>
+      <div class="info-card"><h4>Zoom</h4></div>
+      <div class="info-card"><h4>School Portal</h4></div>
+    </div>
+  `;
 }
 
-function closePalette() {
-  $('palette').hidden = true;
+function switchView(view) {
+  switch (view) {
+    case 'overview':
+      if (currentUser.access === 'full') renderAdminDashboard();
+      else renderTeacherDashboard();
+      break;
+    case 'period1':
+    case 'period2':
+    case 'period3':
+    case 'period4':
+    case 'period5':
+    case 'period6':
+    case 'period7':
+    case 'period8':
+    case 'period9':
+      renderTeacherDashboard();
+      break;
+    case 'students':
+      renderStudents();
+      break;
+    case 'staff':
+      renderStaff();
+      break;
+    case 'records':
+      renderRecords();
+      break;
+    case 'messages':
+      renderMessages();
+      break;
+    case 'helpdesk':
+      renderHelpdesk();
+      break;
+    case 'info':
+      renderInfoGrid();
+      break;
+  }
 }
 
-function runPalette(i) {
-  const it = paletteItems[i];
-  if (!it) return;
-  closePalette();
-  it.run();
-}
-
-function openShortcuts() {
-  $('shortcuts').hidden = false;
-}
-
-function closeShortcuts() {
-  $('shortcuts').hidden = true;
-}
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch (e) {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    let ok = false;
+function initChat() {
+  const fab = $('#chat-fab');
+  const chatWindow = $('#chat-window');
+  const closeChat = $('#close-chat');
+  const sendBtn = $('#send-chat');
+  const chatInput = $('#chat-input');
+  const chatMessages = $('#chat-messages');
+  fab.addEventListener('click', () => {
+    chatWindow.classList.toggle('hidden');
+  });
+  closeChat.addEventListener('click', () => {
+    chatWindow.classList.add('hidden');
+  });
+  sendBtn.addEventListener('click', async () => {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    if (!puter.auth.isSignedIn()) {
+      showModal('<h3>Sign in to Puter</h3><p>Please sign in to use Nova AI.</p><button id="puter-signin" class="btn-primary" style="width:auto;padding:10px 20px">Sign In</button>');
+      $('#puter-signin').addEventListener('click', () => {
+        puter.auth.signIn().then(() => {
+          hideModal();
+          showToast('Signed in to Puter');
+        });
+      });
+      return;
+    }
+    const userMsg = document.createElement('div');
+    userMsg.className = 'chat-msg user';
+    userMsg.textContent = text;
+    chatMessages.appendChild(userMsg);
+    chatInput.value = '';
+    chatHistory.push({ role: 'user', content: text });
+    const botMsg = document.createElement('div');
+    botMsg.className = 'chat-msg bot';
+    botMsg.textContent = 'Thinking...';
+    chatMessages.appendChild(botMsg);
     try {
-      ok = document.execCommand('copy');
-    } catch (err) {
-      ok = false;
+      const response = await puter.ai.chat(chatHistory, { model: 'gpt-5.4-nano' });
+      const reply = response.message.content;
+      chatHistory.push({ role: 'assistant', content: reply });
+      botMsg.innerHTML = DOMPurify.sanitize(marked.parse(reply));
+    } catch (e) {
+      botMsg.textContent = 'Sorry, I encountered an error. Please try again.';
     }
-    document.body.removeChild(ta);
-    return ok;
-  }
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  });
 }
 
-function bindSetting(id, event, apply) {
-  $(id).addEventListener(event, e => apply(e.target));
-}
-
-function bindEvents() {
-  $('navHome').addEventListener('click', goList);
-  $('navDash').addEventListener('click', () => { if (students.length) openStudent(students[0].id); });
-  $('navGrades').addEventListener('click', () => {
-    $('gradesSubMenu').classList.toggle('open');
-    $('navGrades').classList.toggle('open');
-  });
-  $('navSettings').addEventListener('click', openSettings);
-  $('settingsBtn').addEventListener('click', openSettings);
-  $('settingsClose').addEventListener('click', closeSettings);
-  $('overlay').addEventListener('click', e => { if (e.target === $('overlay')) closeSettings(); });
-  $('helpBtn').addEventListener('click', openShortcuts);
-  $('shortcutsClose').addEventListener('click', closeShortcuts);
-  $('shortcuts').addEventListener('click', e => { if (e.target === $('shortcuts')) closeShortcuts(); });
-  $('palette').addEventListener('click', e => { if (e.target === $('palette')) closePalette(); });
-
-  $('subnavList').addEventListener('click', e => {
-    const b = e.target.closest('.subnav-item');
-    if (b) openGradesDir(b.dataset.subject);
-  });
-
-  document.querySelectorAll('.tab').forEach(t => {
-    t.addEventListener('click', () => setTab(t.dataset.tab));
-  });
-
-  $('studentGrid').addEventListener('click', e => {
-    const c = e.target.closest('.student-card');
-    if (c) openStudent(Number(c.dataset.id));
-  });
-  bindTilt($('studentGrid'));
-
-  $('searchInput').addEventListener('input', e => syncSearch(e.target.value));
-  $('searchInput').addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
+function initCommandPalette() {
+  const palette = $('#command-palette');
+  const input = $('#cmd-input');
+  const results = $('#cmd-results');
+  const allCommands = [
+    { name: 'Dashboard', action: () => switchView('overview') },
+    { name: 'Students', action: () => switchView('students') },
+    { name: 'Staff', action: () => switchView('staff') },
+    { name: 'Records', action: () => switchView('records') },
+    { name: 'Messages', action: () => switchView('messages') },
+    { name: 'Help Desk', action: () => switchView('helpdesk') },
+    { name: 'Info Grid', action: () => switchView('info') },
+    { name: 'Logout', action: () => logout() },
+    { name: 'Toggle Theme', action: () => {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme');
+      html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
+    }}
+  ];
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '\\') {
       e.preventDefault();
-      syncSearch(e.target.value);
-      goList();
+      palette.classList.toggle('hidden');
+      if (!palette.classList.contains('hidden')) {
+        input.value = '';
+        input.focus();
+        renderCmdResults(allCommands, '');
+      }
     }
-  });
-  $('homeSearch').addEventListener('input', e => syncSearch(e.target.value));
-  $('homeGrade').innerHTML = gradeOptions();
-  $('homeGrade').value = homeGrade;
-  $('homeHifz').value = homeHifz;
-  $('homeSort').value = homeSort;
-  $('homeGrade').addEventListener('change', e => { homeGrade = e.target.value; renderList(); });
-  $('homeHifz').addEventListener('change', e => { homeHifz = e.target.value; renderList(); });
-  $('homeSort').addEventListener('change', e => { homeSort = e.target.value; renderList(); });
-
-  bindSetting('gradeFormat', 'change', t => {
-    gradeFormat = t.value;
-    save('gradeFormat', gradeFormat);
-    if (view === 'grades' && currentId != null && currentSubject) {
-      const y = window.scrollY;
-      openGradesPage(currentId, currentSubject);
-      window.scrollTo(0, y);
-    }
-  });
-  bindSetting('viewMode', 'change', t => {
-    viewMode = t.value;
-    save('viewMode', viewMode);
-    rerenderCurrent();
-  });
-  bindSetting('densityRange', 'input', t => {
-    densityValue = Number(t.value);
-    save('densityValue', densityValue);
-    applyDensity();
-  });
-  bindSetting('contactsToggle', 'change', t => {
-    showContacts = t.checked;
-    save('showContacts', showContacts);
-    refreshProfile();
-  });
-  bindSetting('recordsToggle', 'change', t => {
-    showRecords = t.checked;
-    save('showRecords', showRecords);
-    refreshProfile();
-  });
-  bindSetting('darkToggle', 'change', t => {
-    isDarkMode = t.checked;
-    save('darkMode', isDarkMode);
-    applyAppearance();
-  });
-  bindSetting('systemToggle', 'change', t => {
-    systemTheme = t.checked;
-    save('systemTheme', systemTheme);
-    applyAppearance();
-  });
-  bindSetting('accentSelect', 'change', t => {
-    accent = t.value;
-    save('accent', accent);
-    applyAppearance();
-  });
-  bindSetting('radiusSelect', 'change', t => {
-    radius = t.value;
-    save('radius', radius);
-    applyAppearance();
-  });
-  bindSetting('fontSelect', 'change', t => {
-    fontSize = t.value;
-    save('fontSize', fontSize);
-    applyAppearance();
-  });
-  bindSetting('fontFamilySelect', 'change', t => {
-    fontFamily = t.value;
-    save('fontFamily', fontFamily);
-    applyAppearance();
-  });
-  bindSetting('patternToggle', 'change', t => {
-    patternOn = t.checked;
-    save('patternOn', patternOn);
-    applyAppearance();
-  });
-  bindSetting('motionToggle', 'change', t => {
-    reduceMotion = t.checked;
-    save('reduceMotion', reduceMotion);
-    applyAppearance();
-  });
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (systemTheme) applyAppearance();
-  });
-
-  $('sheetLink').value = SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit`;
-  $('connectBtn').addEventListener('click', () => connectSheet($('sheetLink').value));
-  $('xlsxBtn').addEventListener('click', () => $('xlsxInput').click());
-  $('xlsxInput').addEventListener('change', e => {
-    const f = e.target.files[0];
-    if (f) importXlsx(f);
-  });
-  window.addEventListener('dragover', e => e.preventDefault());
-  window.addEventListener('drop', e => e.preventDefault());
-
-  $('fabMain').addEventListener('click', e => {
-    e.stopPropagation();
-    $('fab').classList.toggle('open');
-  });
-  document.addEventListener('click', e => {
-    if (!e.target.closest('#fab')) $('fab').classList.remove('open');
-  });
-  $('fabEmail').addEventListener('click', () => window.open(gmailLink(fabData.email), '_blank', 'noopener'));
-  $('fabCall').addEventListener('click', () => {
-    if (fabData.phone && fabData.phone !== 'N/A') window.location.href = 'tel:' + fabData.phone.replace(/[^0-9+]/g, '');
-    else toast('No phone number on file.');
-  });
-  $('fabCopy').addEventListener('click', async () => {
-    toast((await copyText(fabData.code)) ? 'Student ID copied.' : 'Could not copy the ID.');
-  });
-
-  $('paletteInput').addEventListener('input', () => {
-    paletteIdx = 0;
-    renderPalette();
-  });
-  $('paletteInput').addEventListener('keydown', e => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      if (paletteItems.length) paletteIdx = (paletteIdx + 1) % paletteItems.length;
-      renderPalette();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      if (paletteItems.length) paletteIdx = (paletteIdx - 1 + paletteItems.length) % paletteItems.length;
-      renderPalette();
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      runPalette(paletteIdx);
-    }
-  });
-  $('paletteResults').addEventListener('click', e => {
-    const b = e.target.closest('.palette-item');
-    if (b) runPalette(Number(b.dataset.i));
-  });
-
-  $('edgePrev').addEventListener('click', () => navigate(-1));
-  $('edgeNext').addEventListener('click', () => navigate(1));
-  window.addEventListener('scroll', checkSmart, { passive: true });
-  window.addEventListener('resize', checkSmart);
-
-  document.addEventListener('mousemove', e => {
-    if (reduceMotion) return;
-    const b = e.target.closest ? e.target.closest('.btn:not(.ghost)') : null;
-    if (magnet && magnet !== b) {
-      magnet.style.transform = '';
-      magnet = null;
-    }
-    if (!b) return;
-    magnet = b;
-    const r = b.getBoundingClientRect();
-    const dx = ((e.clientX - (r.left + r.width / 2)) / r.width) * 10;
-    const dy = ((e.clientY - (r.top + r.height / 2)) / r.height) * 8;
-    b.style.transform = `translate(${dx.toFixed(2)}px, ${dy.toFixed(2)}px) scale(1.03)`;
-  });
-  document.addEventListener('mouseout', e => {
-    const b = e.target.closest ? e.target.closest('.btn') : null;
-    if (b && !b.contains(e.relatedTarget)) {
-      b.style.transform = '';
-      if (magnet === b) magnet = null;
-    }
-  });
-
-  document.addEventListener('keydown', e => {
-    const tag = (document.activeElement && document.activeElement.tagName) || '';
-    const typing = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA';
     if (e.key === 'Escape') {
-      if (!$('palette').hidden) closePalette();
-      else if (!$('shortcuts').hidden) closeShortcuts();
-      else if (!$('overlay').hidden) closeSettings();
-      return;
+      palette.classList.add('hidden');
     }
-    if (e.key === '\\' && !typing) {
-      e.preventDefault();
-      openPalette();
-      return;
-    }
-    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-    if (typing || !$('overlay').hidden || !$('palette').hidden || !$('shortcuts').hidden) return;
-    navigate(e.key === 'ArrowLeft' ? -1 : 1);
+  });
+  input.addEventListener('input', () => {
+    const q = input.value.toLowerCase();
+    renderCmdResults(allCommands, q);
+  });
+  function renderCmdResults(cmds, q) {
+    const filtered = cmds.filter(c => c.name.toLowerCase().includes(q));
+    results.innerHTML = filtered.map(c => `<div class="cmd-result-item" data-name="${c.name}">${c.name}</div>`).join('');
+    $$('.cmd-result-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const cmd = cmds.find(c => c.name === item.dataset.name);
+        if (cmd) cmd.action();
+        palette.classList.add('hidden');
+      });
+    });
+  }
+  $('.cmd-overlay').addEventListener('click', () => palette.classList.add('hidden'));
+}
+
+function initSettings() {
+  $('#settings-btn').addEventListener('click', () => {
+    showModal(`
+      <h3>Settings</h3>
+      <div style="margin:16px 0">
+        <label style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="dark-mode-toggle">
+          <span>Dark Mode</span>
+        </label>
+      </div>
+      <div style="margin:16px 0">
+        <label style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="pill-mode-toggle">
+          <span>Pill Mode</span>
+        </label>
+      </div>
+      <button id="settings-save" class="btn-primary" style="width:auto;padding:10px 24px">Save</button>
+    `);
+    const darkToggle = $('#dark-mode-toggle');
+    const pillToggle = $('#pill-mode-toggle');
+    const html = document.documentElement;
+    darkToggle.checked = html.getAttribute('data-theme') === 'dark';
+    pillToggle.checked = localStorage.getItem('pill-mode') === 'true';
+    $('#settings-save').addEventListener('click', () => {
+      html.setAttribute('data-theme', darkToggle.checked ? 'dark' : 'light');
+      localStorage.setItem('pill-mode', pillToggle.checked);
+      if (pillToggle.checked) {
+        document.body.style.setProperty('--card-radius', '50px');
+      } else {
+        document.body.style.setProperty('--card-radius', '16px');
+      }
+      hideModal();
+    });
   });
 }
 
-async function boot() {
-  applyAppearance();
-  bindEvents();
-  const cached = loadCache();
-  if (!cached && !SHEET_ID) {
-    SHEET_ID = DEFAULT_SHEET_ID;
-    DATA_SOURCE = 'sheet';
-  }
-  if (cached) {
-    adopt(cached.data);
-    displayedHash = cached.hash;
-    savedHash = cached.hash;
-    finishBoot();
-    hideLoading();
-    checkForUpdates();
-  } else if (SHEET_ID) {
-    try {
-      await loadFromSheet(SHEET_ID);
-      finishBoot();
-    } catch (err) {
-      showEmpty();
-    }
-    hideLoading();
-  } else {
-    showEmpty();
-    hideLoading();
-  }
-  setInterval(checkForUpdates, POLL_INTERVAL);
+function initExcelImport() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.xlsx,.xls';
+  input.id = 'excel-import';
+  input.style.display = 'none';
+  document.body.appendChild(input);
+  input.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const data = new Uint8Array(ev.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetNames = workbook.SheetNames;
+      sheetNames.forEach(name => {
+        if (name.includes('grades')) {
+          const sheet = workbook.Sheets[name];
+          const rows = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+          gradesData[name] = rows;
+        }
+      });
+      showToast('Excel imported successfully');
+    };
+    reader.readAsArrayBuffer(file);
+  });
 }
 
-boot();
+document.addEventListener('DOMContentLoaded', async () => {
+  await loadAllData();
+  startPolling();
+  const savedUser = localStorage.getItem('albaseerah_user');
+  if (savedUser) {
+    currentUser = JSON.parse(savedUser);
+    renderApp();
+  } else {
+    renderLogin();
+  }
+  $('#login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const username = $('#username').value.trim();
+    const password = $('#password').value;
+    const remember = $('#remember-me').checked;
+    const errorEl = $('#login-error');
+    errorEl.textContent = '';
+    const teacher = teachersData.find(t => t.username === username);
+    if (!teacher) {
+      errorEl.textContent = 'Invalid username or password';
+      return;
+    }
+    const valid = await verifyPassword(password, teacher.password);
+    if (!valid) {
+      errorEl.textContent = 'Invalid username or password';
+      return;
+    }
+    currentUser = teacher;
+    if (remember) {
+      localStorage.setItem('albaseerah_user', JSON.stringify(teacher));
+    }
+    renderApp();
+  });
+  $('#toggle-password').addEventListener('click', () => {
+    const pw = $('#password');
+    pw.type = pw.type === 'password' ? 'text' : 'password';
+  });
+  $('#logout-btn').addEventListener('click', logout);
+  $('#refresh-data').addEventListener('click', async () => {
+    $('#data-banner').classList.add('hidden');
+    await loadAllData();
+    switchView('overview');
+  });
+  $$('.nav-item[data-view]').forEach(item => {
+    item.addEventListener('click', () => switchView(item.dataset.view));
+  });
+  $$('.dropdown-item[data-view]').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      switchView(item.dataset.view);
+    });
+  });
+  $('#dashboard-toggle').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const menu = $('.dropdown-menu');
+    menu.style.opacity = menu.style.opacity === '1' ? '0' : '1';
+    menu.style.visibility = menu.style.visibility === 'visible' ? 'hidden' : 'visible';
+  });
+  initChat();
+  initCommandPalette();
+  initSettings();
+  initExcelImport();
+  const currentPeriod = getCurrentPeriod();
+  if (currentPeriod) {
+    switchView('period' + currentPeriod);
+  }
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+      const menu = $('.dropdown-menu');
+      if (menu) {
+        menu.style.opacity = '0';
+        menu.style.visibility = 'hidden';
+      }
+    }
+  });
+  document.addEventListener('mousemove', (e) => {
+    const magnetic = e.target.closest('.magnetic');
+    if (magnetic) {
+      const rect = magnetic.getBoundingClientRect();
+      const x = e.clientX - rect.left - rect.width / 2;
+      const y = e.clientY - rect.top - rect.height / 2;
+      magnetic.style.transform = `translate(${x * 0.1}px, ${y * 0.1}px)`;
+    }
+  });
+  document.addEventListener('mouseleave', (e) => {
+    const magnetic = e.target.closest('.magnetic');
+    if (magnetic) {
+      magnetic.style.transform = 'translate(0, 0)';
+    }
+  });
+  document.addEventListener('mouseover', (e) => {
+    const card = e.target.closest('.student-card, .card');
+    if (card) {
+      card.addEventListener('mousemove', (ev) => {
+        const rect = card.getBoundingClientRect();
+        const x = ev.clientX - rect.left;
+        const y = ev.clientY - rect.top;
+        const centerX = rect.width / 2;
+        const centerY = rect.height / 2;
+        const rotateX = (y - centerY) / 20;
+        const rotateY = (centerX - x) / 20;
+        card.style.transform = `perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg)`;
+      });
+      card.addEventListener('mouseleave', () => {
+        card.style.transform = 'perspective(1000px) rotateX(0) rotateY(0)';
+      });
+    }
+  });
+});
