@@ -14,8 +14,9 @@ let teachersData = [];
 let periodsData = [];
 let recordsData = [];
 let gradesData = {};
-let chatHistory = [];
+let chatHistory = [{ role: 'system', content: 'You are Rayyan, the AI assistant for the Albaseerah Staff Dashboard. You can help users navigate the website, understand its features, and answer questions about the data. Be concise and helpful.' }];
 let dataHash = '';
+let cachedData = {};
 
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => document.querySelectorAll(sel);
@@ -178,7 +179,22 @@ function parseRecords(rows) {
   return records;
 }
 
-async function loadAllData() {
+async function loadAllData(forceRefresh = false) {
+  const cacheKey = 'albaseerah_data_cache';
+  if (!forceRefresh) {
+    const cached = localStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      studentsData = parsed.students || [];
+      teachersData = parsed.teachers || [];
+      periodsData = parsed.periods || [];
+      recordsData = parsed.records || [];
+      gradesData = parsed.grades || {};
+      dataHash = parsed.hash || '';
+      if (studentsData.length > 0) return;
+    }
+  }
+
   try {
     const [studentsRows, teachersRows, periodsRows, recordsRows] = await Promise.all([
       fetchCSV(SHEETS.students),
@@ -190,6 +206,7 @@ async function loadAllData() {
     teachersData = parseTeachers(teachersRows);
     periodsData = parsePeriods(periodsRows);
     recordsData = parseRecords(recordsRows);
+    
     for (const gradeSheet of SHEETS.grades) {
       try {
         const rows = await fetchCSV(gradeSheet);
@@ -198,12 +215,22 @@ async function loadAllData() {
         }
       } catch (e) {}
     }
+
     dataHash = JSON.stringify({
       students: studentsData.length,
       teachers: teachersData.length,
       periods: periodsData.length,
       records: recordsData.length
     });
+
+    localStorage.setItem(cacheKey, JSON.stringify({
+      students: studentsData,
+      teachers: teachersData,
+      periods: periodsData,
+      records: recordsData,
+      grades: gradesData,
+      hash: dataHash
+    }));
   } catch (e) {
     console.error('Failed to load data', e);
   }
@@ -289,7 +316,7 @@ function renderApp() {
   $('#login-screen').classList.add('hidden');
   $('#app').classList.remove('hidden');
   if (currentUser) {
-    showToast(`Welcome, ${currentUser.first} ${currentUser.last}`);
+    showToast(`Welcome, ${currentUser.first}`);
     if (currentUser.access === 'full') {
       renderAdminDashboard();
     } else {
@@ -309,6 +336,7 @@ function renderAdminDashboard() {
   const totalStudents = studentsData.length;
   const totalStaff = teachersData.length;
   const recentIncidents = recordsData.slice(-5).reverse();
+  
   let totalGradeSum = 0;
   let gradeCount = 0;
   for (const sheet in gradesData) {
@@ -326,7 +354,9 @@ function renderAdminDashboard() {
     }
   }
   const avgGrade = gradeCount > 0 ? (totalGradeSum / gradeCount).toFixed(1) : 'N/A';
+
   container.innerHTML = `
+    <h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Hi, ${currentUser.first}</h2>
     <div class="stats-grid">
       <div class="stat-card card">
         <h3>Total Students</h3>
@@ -345,27 +375,25 @@ function renderAdminDashboard() {
         <div class="value">${recentIncidents.length}</div>
       </div>
     </div>
-    <h3 style="margin-bottom:16px;color:var(--maroon)">SMS Features</h3>
+    <h3 style="margin-bottom:20px;color:var(--maroon);font-size:20px">SMS Features</h3>
     <div class="helpdesk-grid">
-      <div class="helpdesk-card" data-feature="admissions"><div class="icon">📝</div><h4>Admissions</h4></div>
-      <div class="helpdesk-card" data-feature="finder"><div class="icon">🔍</div><h4>Student Finder</h4></div>
-      <div class="helpdesk-card" data-feature="staffdir"><div class="icon">👥</div><h4>Staff Directory</h4></div>
-      <div class="helpdesk-card" data-feature="iep"><div class="icon">📋</div><h4>Individual Needs</h4></div>
-      <div class="helpdesk-card" data-feature="behavior"><div class="icon">⚠️</div><h4>Behavior Log</h4></div>
-      <div class="helpdesk-card" data-feature="rubrics"><div class="icon">📊</div><h4>Rubrics</h4></div>
-      <div class="helpdesk-card" data-feature="lesson"><div class="icon">📚</div><h4>Lesson Planning</h4></div>
-      <div class="helpdesk-card" data-feature="exams"><div class="icon">📝</div><h4>Exam Tracking</h4></div>
-      <div class="helpdesk-card" data-feature="timetable"><div class="icon">📅</div><h4>Timetable</h4></div>
-      <div class="helpdesk-card" data-feature="badges"><div class="icon">🏆</div><h4>Badges</h4></div>
-      <div class="helpdesk-card" data-feature="helpdesk"><div class="icon">🆘</div><h4>Help Desk</h4></div>
-      <div class="helpdesk-card" data-feature="info"><div class="icon">🔗</div><h4>Info Grid</h4></div>
+      <div class="helpdesk-card" data-feature="admissions"><h4>Admissions</h4></div>
+      <div class="helpdesk-card" data-feature="finder"><h4>Student Finder</h4></div>
+      <div class="helpdesk-card" data-feature="staffdir"><h4>Staff Directory</h4></div>
+      <div class="helpdesk-card" data-feature="iep"><h4>Individual Needs</h4></div>
+      <div class="helpdesk-card" data-feature="behavior"><h4>Behavior Log</h4></div>
+      <div class="helpdesk-card" data-feature="rubrics"><h4>Rubrics</h4></div>
+      <div class="helpdesk-card" data-feature="lesson"><h4>Lesson Planning</h4></div>
+      <div class="helpdesk-card" data-feature="exams"><h4>Exam Tracking</h4></div>
+      <div class="helpdesk-card" data-feature="timetable"><h4>Timetable</h4></div>
+      <div class="helpdesk-card" data-feature="badges"><h4>Badges</h4></div>
+      <div class="helpdesk-card" data-feature="helpdesk"><h4>Help Desk</h4></div>
+      <div class="helpdesk-card" data-feature="info"><h4>Info Grid</h4></div>
     </div>
   `;
+
   $$('.helpdesk-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const feature = card.dataset.feature;
-      handleAdminFeature(feature);
-    });
+    card.addEventListener('click', () => handleAdminFeature(card.dataset.feature));
   });
 }
 
@@ -374,30 +402,31 @@ function renderTeacherDashboard() {
   const teacherPeriods = getTeacherPeriods(currentUser.id);
   const currentPeriod = getCurrentPeriod();
   let todayPeriods = teacherPeriods.filter(p => p.period_no === String(currentPeriod));
-  if (todayPeriods.length === 0) {
-    todayPeriods = teacherPeriods;
-  }
-  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Hi, ${currentUser.first}</h2>`;
+  if (todayPeriods.length === 0) todayPeriods = teacherPeriods;
+
+  let html = `<h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Hi, ${currentUser.first}</h2>`;
+  
   if (todayPeriods.length === 0) {
     html += `<p>No classes scheduled for today.</p>`;
   } else {
     todayPeriods.forEach(period => {
       const students = getStudentsForPeriod(period);
-      html += `<div class="card" style="margin-bottom:20px">
-        <h3 style="color:var(--maroon);margin-bottom:12px">${period.subject} (Period ${period.period_no})</h3>
+      html += `<div class="card" style="margin-bottom:24px">
+        <h3 style="color:var(--maroon);margin-bottom:16px;font-size:18px">${period.subject} (Period ${period.period_no})</h3>
         <div class="student-grid">`;
+      
       students.forEach((student, idx) => {
         const fullName = `${student.first_name} ${student.last_name}`;
         html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
-          <h4>${fullName}</h4>
-          <p style="font-size:12px;color:#666">Grade ${student.grade}</p>
+          <h4 style="color:var(--maroon);margin-bottom:4px">${fullName}</h4>
+          <p style="font-size:12px;color:#666;margin-bottom:12px">Grade ${student.grade}</p>
           <div class="attendance-toggle" data-student="${student.id || fullName}" data-period="${period.id}">
             <button class="att-btn present active" data-status="present">Present</button>
             <button class="att-btn late" data-status="late">Late</button>
             <button class="att-btn absent" data-status="absent">Absent</button>
           </div>
-          <div style="margin-top:12px;display:flex;align-items:center;gap:8px">
-            <label style="font-size:12px;font-weight:600">Score:</label>
+          <div style="margin-top:16px;display:flex;align-items:center;gap:8px">
+            <label style="font-size:12px;font-weight:600;color:var(--maroon)">Score:</label>
             <input type="number" class="grade-input" data-student="${student.id || fullName}" data-period="${period.id}" placeholder="0">
           </div>
         </div>`;
@@ -406,6 +435,7 @@ function renderTeacherDashboard() {
     });
   }
   container.innerHTML = html;
+
   $$('.att-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const parent = e.target.closest('.attendance-toggle');
@@ -413,62 +443,113 @@ function renderTeacherDashboard() {
       e.target.classList.add('active');
     });
   });
+
   $$('.grade-input').forEach(input => {
     input.addEventListener('change', (e) => {
-      const student = e.target.dataset.student;
-      const period = e.target.dataset.period;
-      const score = e.target.value;
-      saveGrade(student, period, score);
+      showToast(`Score ${e.target.value} saved for ${e.target.dataset.student}`);
     });
   });
-}
-
-function saveGrade(student, period, score) {
-  showToast(`Score ${score} saved for ${student}`);
 }
 
 function handleAdminFeature(feature) {
   switch (feature) {
     case 'admissions':
-      showModal('<h2>Admissions Workflow</h2><p>Application management UI here.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Admissions Workflow</h3>
+        <div style="margin-bottom:16px"><input type="text" placeholder="Applicant Name" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;margin-bottom:8px"></div>
+        <div style="margin-bottom:16px"><select style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px"><option>Pending Review</option><option>Interview Scheduled</option><option>Accepted</option><option>Rejected</option></select></div>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Application submitted')">Submit Application</button>
+      `);
       break;
     case 'finder':
-      showModal('<h2>Fast Student Finder</h2><input type="text" id="finder-input" placeholder="Search students..." style="width:100%;padding:10px;margin-bottom:12px;border:1px solid #ddd;border-radius:8px"><div id="finder-results"></div>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Fast Student Finder</h3>
+        <input type="text" id="finder-input" placeholder="Search students..." style="width:100%;padding:12px;margin-bottom:16px;border:1px solid #ddd;border-radius:8px">
+        <div id="finder-results" style="max-height:300px;overflow-y:auto"></div>
+      `);
       $('#finder-input').addEventListener('input', (e) => {
         const q = e.target.value.toLowerCase();
         const results = studentsData.filter(s => `${s.first_name} ${s.last_name}`.toLowerCase().includes(q));
-        $('#finder-results').innerHTML = results.map(s => `<div style="padding:8px;border-bottom:1px solid #eee">${s.first_name} ${s.last_name} (Grade ${s.grade})</div>`).join('');
+        $('#finder-results').innerHTML = results.map(s => `<div style="padding:12px;border-bottom:1px solid #eee">${s.first_name} ${s.last_name} (Grade ${s.grade})</div>`).join('');
       });
       break;
     case 'staffdir':
-      showModal('<h2>Staff Directory</h2>' + teachersData.map(t => `<div style="padding:8px;border-bottom:1px solid #eee">${t.first} ${t.last} - ${t.subject} (${t.access})</div>`).join(''));
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Staff Directory</h3>
+        <div style="max-height:400px;overflow-y:auto">
+          ${teachersData.map(t => `<div style="padding:12px;border-bottom:1px solid #eee"><strong>${t.first} ${t.last}</strong><br><span style="font-size:12px;color:#666">${t.subject} (${t.access})</span></div>`).join('')}
+        </div>
+      `);
       break;
     case 'iep':
-      showModal('<h2>Individual Needs (IEPs)</h2><p>Accommodations management UI.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Individual Needs (IEPs)</h3>
+        <div style="margin-bottom:16px"><textarea placeholder="Accommodations..." style="width:100%;height:100px;padding:12px;border:1px solid #ddd;border-radius:6px"></textarea></div>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('IEP updated')">Save IEP</button>
+      `);
       break;
     case 'behavior':
-      showModal('<h2>Behavior / Discipline Logging</h2><p>Log incidents here.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Behavior / Discipline Logging</h3>
+        <div style="margin-bottom:12px"><input type="text" placeholder="Student Name" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px"></div>
+        <div style="margin-bottom:12px"><textarea placeholder="Incident Description..." style="width:100%;height:80px;padding:12px;border:1px solid #ddd;border-radius:6px"></textarea></div>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Behavior logged')">Log Incident</button>
+      `);
       break;
     case 'rubrics':
-      showModal('<h2>Rubrics</h2><p>Rubric management UI.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Rubrics</h3>
+        <p style="margin-bottom:16px">Create and manage grading rubrics.</p>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Rubric created')">Create Rubric</button>
+      `);
       break;
     case 'lesson':
-      showModal('<h2>Lesson Planning</h2><p>Lesson plan UI.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Lesson Planning</h3>
+        <div style="margin-bottom:12px"><input type="text" placeholder="Lesson Title" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px"></div>
+        <div style="margin-bottom:12px"><textarea placeholder="Lesson Details..." style="width:100%;height:120px;padding:12px;border:1px solid #ddd;border-radius:6px"></textarea></div>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Lesson plan saved')">Save Plan</button>
+      `);
       break;
     case 'exams':
-      showModal('<h2>Exam Tracking</h2><p>Exam tracking UI.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Exam Tracking</h3>
+        <p style="margin-bottom:16px">Track upcoming and past exams.</p>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Exam added')">Add Exam</button>
+      `);
       break;
     case 'timetable':
-      showModal('<h2>Timetable</h2><p>Google Calendar integration placeholder.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Timetable</h3>
+        <p style="margin-bottom:16px">Google Calendar Integration Placeholder.</p>
+        <div style="height:200px;background:#f0f0f0;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#999">Calendar View</div>
+      `);
       break;
     case 'badges':
-      showModal('<h2>Badges & Rewards</h2><p>Badge system UI.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Badges & Rewards</h3>
+        <p style="margin-bottom:16px">Award badges to students for achievements.</p>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Badge awarded')">Award Badge</button>
+      `);
       break;
     case 'helpdesk':
-      showModal('<h2>Help Desk</h2><p>Submit IT/admin requests.</p>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Help Desk</h3>
+        <div style="margin-bottom:12px"><select style="width:100%;padding:10px;border:1px solid #ddd;border-radius:6px"><option>IT Support</option><option>Admin Request</option><option>Maintenance</option></select></div>
+        <div style="margin-bottom:12px"><textarea placeholder="Describe your issue..." style="width:100%;height:100px;padding:12px;border:1px solid #ddd;border-radius:6px"></textarea></div>
+        <button class="btn-primary" style="width:auto;padding:10px 24px" onclick="hideModal();showToast('Request submitted')">Submit Request</button>
+      `);
       break;
     case 'info':
-      showModal('<h2>Info Grid</h2><div class="info-grid"><div class="info-card"><h4>IXL</h4></div><div class="info-card"><h4>Khan Academy</h4></div><div class="info-card"><h4>Google Classroom</h4></div></div>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:20px">Info Grid</h3>
+        <div class="info-grid">
+          <div class="info-card"><h4>IXL</h4></div>
+          <div class="info-card"><h4>Khan Academy</h4></div>
+          <div class="info-card"><h4>Google Classroom</h4></div>
+          <div class="info-card"><h4>Canvas</h4></div>
+        </div>
+      `);
       break;
   }
 }
@@ -480,10 +561,12 @@ function renderRecords() {
     const student = r.student || 'Unknown';
     incidentCounts[student] = (incidentCounts[student] || 0) + 1;
   });
+
   const maxIncidents = 50;
-  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Records</h2>`;
+  let html = `<h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Records</h2>`;
   html += `<div class="records-bar-container"><div class="records-bar"><div class="records-marker" style="left:0%"></div></div></div>`;
-  html += `<div id="records-list">`;
+  html += `<div id="records-list" style="display:flex;flex-direction:column;gap:16px">`;
+
   const sortedStudents = studentsData.slice().sort((a, b) => {
     const nameA = `${a.first_name} ${a.last_name}`;
     const nameB = `${b.first_name} ${b.last_name}`;
@@ -491,45 +574,48 @@ function renderRecords() {
     const countB = incidentCounts[nameB] || 0;
     return countB - countA;
   });
+
   sortedStudents.forEach(s => {
     const name = `${s.first_name} ${s.last_name}`;
     const count = incidentCounts[name] || 0;
     const percent = Math.min((count / maxIncidents) * 100, 100);
-    html += `<div class="card" style="margin-bottom:12px;cursor:pointer" data-student="${name}" data-count="${count}">
-      <h4>${name}</h4>
-      <p style="font-size:12px;color:#666">Incidents: ${count}</p>
-      <div class="records-bar-container" style="margin:8px 0">
+    html += `<div class="card" style="cursor:pointer" data-student="${name}" data-count="${count}">
+      <h4 style="color:var(--maroon);margin-bottom:4px">${name}</h4>
+      <p style="font-size:12px;color:#666;margin-bottom:12px">Incidents: ${count}</p>
+      <div class="records-bar-container" style="margin:0">
         <div class="records-bar"><div class="records-marker" style="left:${percent}%"></div></div>
       </div>
     </div>`;
   });
   html += `</div>`;
   container.innerHTML = html;
+
   $$('.card[data-student]').forEach(card => {
-    card.addEventListener('click', () => {
-      const student = card.dataset.student;
-      showRecordsPage(student);
-    });
+    card.addEventListener('click', () => showRecordsPage(card.dataset.student));
   });
 }
 
 function showRecordsPage(studentName) {
   const container = $('#view-container');
   const studentRecords = recordsData.filter(r => r.student === studentName);
+  
   const absences = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('absence')).length;
   const excused = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('excused')).length;
   const tardies = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('tardy')).length;
   const presents = studentRecords.filter(r => r.incident && r.incident.toLowerCase().includes('present')).length;
   const incidents = studentRecords.length;
+
   container.innerHTML = `
-    <button id="back-to-records" class="btn-primary" style="width:auto;padding:8px 16px;margin-bottom:16px">← Back</button>
-    <h2 style="color:var(--maroon);margin-bottom:20px">Records for ${studentName}</h2>
+    <button id="back-to-records" class="btn-primary" style="width:auto;padding:8px 16px;margin-bottom:24px">Back to Records</button>
+    <h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Records for ${studentName}</h2>
     <div class="histogram-container"><canvas id="histogram-chart"></canvas></div>
-    <div id="records-detail-list">
-      ${studentRecords.map(r => `<div class="card" style="margin-bottom:8px"><strong>${r.date || 'N/A'}</strong> - ${r.incident || 'N/A'} (${r.action || 'N/A'}) at ${r.location || 'N/A'}</div>`).join('')}
+    <div id="records-detail-list" style="display:flex;flex-direction:column;gap:8px">
+      ${studentRecords.map(r => `<div class="card" style="padding:16px"><strong>${r.date || 'N/A'}</strong> - ${r.incident || 'N/A'} (${r.action || 'N/A'}) at ${r.location || 'N/A'}</div>`).join('')}
     </div>
   `;
+
   $('#back-to-records').addEventListener('click', renderRecords);
+
   const ctx = document.getElementById('histogram-chart').getContext('2d');
   new Chart(ctx, {
     type: 'bar',
@@ -538,29 +624,26 @@ function showRecordsPage(studentName) {
       datasets: [{
         label: 'Count',
         data: [absences, excused, tardies, presents, incidents],
-        backgroundColor: ['#3498db', '#f39c12', '#e67e22', '#27ae60', '#e74c3c']
+        backgroundColor: ['#3498db', '#f39c12', '#e67e22', '#27ae60', '#c0392b'],
+        borderRadius: 6
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false }
-      },
-      scales: {
-        y: { beginAtZero: true }
-      }
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: true } }
     }
   });
 }
 
 function renderStudents() {
   const container = $('#view-container');
-  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Students</h2><div class="student-grid">`;
+  let html = `<h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Students</h2><div class="student-grid">`;
   studentsData.forEach((student, idx) => {
     html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
-      <h4>${student.first_name} ${student.last_name}</h4>
-      <p style="font-size:12px;color:#666">Grade ${student.grade}</p>
+      <h4 style="color:var(--maroon);margin-bottom:4px">${student.first_name} ${student.last_name}</h4>
+      <p style="font-size:12px;color:#666;margin-bottom:4px">Grade ${student.grade}</p>
       <p style="font-size:12px;color:#666">${student.email || ''}</p>
     </div>`;
   });
@@ -570,11 +653,11 @@ function renderStudents() {
 
 function renderStaff() {
   const container = $('#view-container');
-  let html = `<h2 style="color:var(--maroon);margin-bottom:20px">Staff Directory</h2><div class="student-grid">`;
+  let html = `<h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Staff Directory</h2><div class="student-grid">`;
   teachersData.forEach((teacher, idx) => {
     html += `<div class="student-card" style="animation-delay:${idx * 50}ms">
-      <h4>${teacher.first} ${teacher.last}</h4>
-      <p style="font-size:12px;color:#666">${teacher.subject || ''}</p>
+      <h4 style="color:var(--maroon);margin-bottom:4px">${teacher.first} ${teacher.last}</h4>
+      <p style="font-size:12px;color:#666;margin-bottom:4px">${teacher.subject || ''}</p>
       <p style="font-size:12px;color:#666">${teacher.email || ''}</p>
     </div>`;
   });
@@ -585,18 +668,18 @@ function renderStaff() {
 function renderMessages() {
   const container = $('#view-container');
   container.innerHTML = `
-    <h2 style="color:var(--maroon);margin-bottom:20px">Unified Messenger</h2>
+    <h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Unified Messenger</h2>
     <div class="messenger-container">
       <div class="messenger-list">
-        <div class="messenger-item"><strong>Announcements</strong><br><span style="font-size:12px;color:#666">School-wide</span></div>
-        <div class="messenger-item"><strong>Staff Room</strong><br><span style="font-size:12px;color:#666">All staff</span></div>
-        <div class="messenger-item"><strong>Parents</strong><br><span style="font-size:12px;color:#666">Grade 5 parents</span></div>
+        <div class="messenger-item"><strong style="color:var(--maroon)">Announcements</strong><br><span style="font-size:12px;color:#666">School-wide</span></div>
+        <div class="messenger-item"><strong style="color:var(--maroon)">Staff Room</strong><br><span style="font-size:12px;color:#666">All staff</span></div>
+        <div class="messenger-item"><strong style="color:var(--maroon)">Parents</strong><br><span style="font-size:12px;color:#666">Grade 5 parents</span></div>
       </div>
       <div class="messenger-chat">
         <div class="messenger-messages" id="msg-messages"></div>
         <div class="messenger-input-area">
           <input type="text" id="msg-input" placeholder="Type a message...">
-          <button id="msg-send" class="btn-primary" style="width:auto;padding:10px 20px">Send</button>
+          <button id="msg-send" class="btn-primary" style="width:auto;padding:10px 24px">Send</button>
         </div>
       </div>
     </div>
@@ -617,22 +700,21 @@ function renderMessages() {
 function renderHelpdesk() {
   const container = $('#view-container');
   container.innerHTML = `
-    <h2 style="color:var(--maroon);margin-bottom:20px">Help Desk</h2>
-    <div class="helpdesk-grid">
-      <div class="helpdesk-card"><div class="icon">🖥️</div><h4>IT Support</h4></div>
-      <div class="helpdesk-card"><div class="icon">📋</div><h4>Admin Requests</h4></div>
-      <div class="helpdesk-card"><div class="icon">🔧</div><h4>Maintenance</h4></div>
+    <h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Help Desk</h2>
+    <div class="helpdesk-grid" style="margin-bottom:24px">
+      <div class="helpdesk-card"><h4>IT Support</h4></div>
+      <div class="helpdesk-card"><h4>Admin Requests</h4></div>
+      <div class="helpdesk-card"><h4>Maintenance</h4></div>
     </div>
-    <div style="margin-top:20px">
-      <h3 style="color:var(--maroon);margin-bottom:12px">Submit a Request</h3>
-      <textarea id="helpdesk-desc" placeholder="Describe your issue..." style="width:100%;height:100px;padding:12px;border:1px solid #ddd;border-radius:8px;font-family:inherit"></textarea>
-      <button id="helpdesk-submit" class="btn-primary" style="width:auto;padding:10px 24px;margin-top:12px">Submit</button>
+    <div class="card">
+      <h3 style="color:var(--maroon);margin-bottom:16px">Submit a Request</h3>
+      <textarea id="helpdesk-desc" placeholder="Describe your issue..." style="width:100%;height:120px;padding:12px;border:1px solid #ddd;border-radius:8px;font-family:inherit;margin-bottom:16px"></textarea>
+      <button id="helpdesk-submit" class="btn-primary" style="width:auto;padding:10px 24px">Submit</button>
     </div>
   `;
   $('#helpdesk-submit').addEventListener('click', () => {
-    const desc = $('#helpdesk-desc').value;
-    if (desc.trim()) {
-      showToast('Help desk request submitted!');
+    if ($('#helpdesk-desc').value.trim()) {
+      showToast('Help desk request submitted');
       $('#helpdesk-desc').value = '';
     }
   });
@@ -641,7 +723,7 @@ function renderHelpdesk() {
 function renderInfoGrid() {
   const container = $('#view-container');
   container.innerHTML = `
-    <h2 style="color:var(--maroon);margin-bottom:20px">Quick Links</h2>
+    <h2 style="color:var(--maroon);margin-bottom:24px;font-size:28px">Quick Links</h2>
     <div class="info-grid">
       <div class="info-card"><h4>IXL</h4></div>
       <div class="info-card"><h4>Khan Academy</h4></div>
@@ -670,24 +752,12 @@ function switchView(view) {
     case 'period9':
       renderTeacherDashboard();
       break;
-    case 'students':
-      renderStudents();
-      break;
-    case 'staff':
-      renderStaff();
-      break;
-    case 'records':
-      renderRecords();
-      break;
-    case 'messages':
-      renderMessages();
-      break;
-    case 'helpdesk':
-      renderHelpdesk();
-      break;
-    case 'info':
-      renderInfoGrid();
-      break;
+    case 'students': renderStudents(); break;
+    case 'staff': renderStaff(); break;
+    case 'records': renderRecords(); break;
+    case 'messages': renderMessages(); break;
+    case 'helpdesk': renderHelpdesk(); break;
+    case 'info': renderInfoGrid(); break;
   }
 }
 
@@ -698,17 +768,20 @@ function initChat() {
   const sendBtn = $('#send-chat');
   const chatInput = $('#chat-input');
   const chatMessages = $('#chat-messages');
-  fab.addEventListener('click', () => {
-    chatWindow.classList.toggle('hidden');
-  });
-  closeChat.addEventListener('click', () => {
-    chatWindow.classList.add('hidden');
-  });
+
+  fab.addEventListener('click', () => chatWindow.classList.toggle('hidden'));
+  closeChat.addEventListener('click', () => chatWindow.classList.add('hidden'));
+
   sendBtn.addEventListener('click', async () => {
     const text = chatInput.value.trim();
     if (!text) return;
+
     if (!puter.auth.isSignedIn()) {
-      showModal('<h3>Sign in to Puter</h3><p>Please sign in to use Nova AI.</p><button id="puter-signin" class="btn-primary" style="width:auto;padding:10px 20px">Sign In</button>');
+      showModal(`
+        <h3 style="color:var(--maroon);margin-bottom:16px">Sign in to Puter</h3>
+        <p style="margin-bottom:20px">Please sign in to use Rayyan AI.</p>
+        <button id="puter-signin" class="btn-primary" style="width:auto;padding:10px 24px">Sign In</button>
+      `);
       $('#puter-signin').addEventListener('click', () => {
         puter.auth.signIn().then(() => {
           hideModal();
@@ -717,16 +790,19 @@ function initChat() {
       });
       return;
     }
+
     const userMsg = document.createElement('div');
     userMsg.className = 'chat-msg user';
     userMsg.textContent = text;
     chatMessages.appendChild(userMsg);
     chatInput.value = '';
     chatHistory.push({ role: 'user', content: text });
+
     const botMsg = document.createElement('div');
     botMsg.className = 'chat-msg bot';
-    botMsg.textContent = 'Thinking...';
+    botMsg.textContent = 'Rayyan is thinking...';
     chatMessages.appendChild(botMsg);
+
     try {
       const response = await puter.ai.chat(chatHistory, { model: 'gpt-5.4-nano' });
       const reply = response.message.content;
@@ -743,6 +819,7 @@ function initCommandPalette() {
   const palette = $('#command-palette');
   const input = $('#cmd-input');
   const results = $('#cmd-results');
+
   const allCommands = [
     { name: 'Dashboard', action: () => switchView('overview') },
     { name: 'Students', action: () => switchView('students') },
@@ -758,6 +835,7 @@ function initCommandPalette() {
       html.setAttribute('data-theme', current === 'dark' ? 'light' : 'dark');
     }}
   ];
+
   document.addEventListener('keydown', (e) => {
     if (e.key === '\\') {
       e.preventDefault();
@@ -768,18 +846,43 @@ function initCommandPalette() {
         renderCmdResults(allCommands, '');
       }
     }
-    if (e.key === 'Escape') {
-      palette.classList.add('hidden');
-    }
+    if (e.key === 'Escape') palette.classList.add('hidden');
   });
+
   input.addEventListener('input', () => {
-    const q = input.value.toLowerCase();
-    renderCmdResults(allCommands, q);
+    let q = input.value.toLowerCase();
+    if (q.startsWith('@')) {
+      const search = q.substring(1);
+      const people = studentsData.concat(teachersData.map(t => ({ first_name: t.first, last_name: t.last, email: t.email, grade: t.subject })));
+      const filtered = people.filter(p => `${p.first_name} ${p.last_name}`.toLowerCase().includes(search));
+      results.innerHTML = filtered.map(p => `<div class="cmd-result-item">${p.first_name} ${p.last_name} (${p.email || p.grade})</div>`).join('');
+      return;
+    }
+    if (q === '?') {
+      results.innerHTML = `<div class="cmd-result-item" data-action="toggle-theme">Toggle Dark Mode</div><div class="cmd-result-item" data-action="toggle-pill">Toggle Pill Mode</div>`;
+      $$('.cmd-result-item[data-action]').forEach(item => {
+        item.addEventListener('click', () => {
+          if (item.dataset.action === 'toggle-theme') {
+            const html = document.documentElement;
+            html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+          }
+          if (item.dataset.action === 'toggle-pill') {
+            const current = localStorage.getItem('pill-mode') === 'true';
+            localStorage.setItem('pill-mode', !current);
+            document.body.style.setProperty('--card-radius', !current ? '50px' : '16px');
+          }
+          palette.classList.add('hidden');
+        });
+      });
+      return;
+    }
+    const filtered = allCommands.filter(c => c.name.toLowerCase().includes(q));
+    renderCmdResults(filtered, q);
   });
+
   function renderCmdResults(cmds, q) {
-    const filtered = cmds.filter(c => c.name.toLowerCase().includes(q));
-    results.innerHTML = filtered.map(c => `<div class="cmd-result-item" data-name="${c.name}">${c.name}</div>`).join('');
-    $$('.cmd-result-item').forEach(item => {
+    results.innerHTML = cmds.map(c => `<div class="cmd-result-item" data-name="${c.name}">${c.name}</div>`).join('');
+    $$('.cmd-result-item[data-name]').forEach(item => {
       item.addEventListener('click', () => {
         const cmd = cmds.find(c => c.name === item.dataset.name);
         if (cmd) cmd.action();
@@ -787,40 +890,40 @@ function initCommandPalette() {
       });
     });
   }
-  $('.cmd-overlay').addEventListener('click', () => palette.classList.add('hidden'));
+
+  $('#cmd-overlay').addEventListener('click', () => palette.classList.add('hidden'));
 }
 
 function initSettings() {
   $('#settings-btn').addEventListener('click', () => {
     showModal(`
-      <h3>Settings</h3>
-      <div style="margin:16px 0">
-        <label style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" id="dark-mode-toggle">
-          <span>Dark Mode</span>
+      <h3 style="color:var(--maroon);margin-bottom:20px">Settings</h3>
+      <div style="margin-bottom:20px">
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
+          <input type="checkbox" id="dark-mode-toggle" style="width:18px;height:18px">
+          <span style="font-size:14px;font-weight:500">Dark Mode</span>
         </label>
       </div>
-      <div style="margin:16px 0">
-        <label style="display:flex;align-items:center;gap:8px">
-          <input type="checkbox" id="pill-mode-toggle">
-          <span>Pill Mode</span>
+      <div style="margin-bottom:24px">
+        <label style="display:flex;align-items:center;gap:12px;cursor:pointer">
+          <input type="checkbox" id="pill-mode-toggle" style="width:18px;height:18px">
+          <span style="font-size:14px;font-weight:500">Pill Mode</span>
         </label>
       </div>
       <button id="settings-save" class="btn-primary" style="width:auto;padding:10px 24px">Save</button>
     `);
+
     const darkToggle = $('#dark-mode-toggle');
     const pillToggle = $('#pill-mode-toggle');
     const html = document.documentElement;
+    
     darkToggle.checked = html.getAttribute('data-theme') === 'dark';
     pillToggle.checked = localStorage.getItem('pill-mode') === 'true';
+
     $('#settings-save').addEventListener('click', () => {
       html.setAttribute('data-theme', darkToggle.checked ? 'dark' : 'light');
       localStorage.setItem('pill-mode', pillToggle.checked);
-      if (pillToggle.checked) {
-        document.body.style.setProperty('--card-radius', '50px');
-      } else {
-        document.body.style.setProperty('--card-radius', '16px');
-      }
+      document.body.style.setProperty('--card-radius', pillToggle.checked ? '50px' : '16px');
       hideModal();
     });
   });
@@ -833,6 +936,7 @@ function initExcelImport() {
   input.id = 'excel-import';
   input.style.display = 'none';
   document.body.appendChild(input);
+
   input.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -848,15 +952,23 @@ function initExcelImport() {
           gradesData[name] = rows;
         }
       });
-      showToast('Excel imported successfully');
+      showToast('Excel data imported successfully');
     };
     reader.readAsArrayBuffer(file);
   });
+
+  const btn = document.createElement('button');
+  btn.textContent = 'Import Excel';
+  btn.className = 'btn-icon';
+  btn.style.marginLeft = '12px';
+  btn.addEventListener('click', () => input.click());
+  $('.topbar-right').appendChild(btn);
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await loadAllData();
   startPolling();
+
   const savedUser = localStorage.getItem('albaseerah_user');
   if (savedUser) {
     currentUser = JSON.parse(savedUser);
@@ -864,6 +976,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     renderLogin();
   }
+
   $('#login-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const username = $('#username').value.trim();
@@ -871,64 +984,71 @@ document.addEventListener('DOMContentLoaded', async () => {
     const remember = $('#remember-me').checked;
     const errorEl = $('#login-error');
     errorEl.textContent = '';
+
     const teacher = teachersData.find(t => t.username === username);
     if (!teacher) {
       errorEl.textContent = 'Invalid username or password';
       return;
     }
+
     const valid = await verifyPassword(password, teacher.password);
     if (!valid) {
       errorEl.textContent = 'Invalid username or password';
       return;
     }
+
     currentUser = teacher;
     if (remember) {
       localStorage.setItem('albaseerah_user', JSON.stringify(teacher));
     }
     renderApp();
   });
+
   $('#toggle-password').addEventListener('click', () => {
     const pw = $('#password');
     pw.type = pw.type === 'password' ? 'text' : 'password';
+    $('#toggle-password').textContent = pw.type === 'password' ? 'Show' : 'Hide';
   });
+
   $('#logout-btn').addEventListener('click', logout);
+
   $('#refresh-data').addEventListener('click', async () => {
     $('#data-banner').classList.add('hidden');
-    await loadAllData();
+    await loadAllData(true);
     switchView('overview');
   });
+
   $$('.nav-item[data-view]').forEach(item => {
     item.addEventListener('click', () => switchView(item.dataset.view));
   });
+
   $$('.dropdown-item[data-view]').forEach(item => {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       switchView(item.dataset.view);
+      $('.dropdown').classList.remove('active');
     });
   });
+
   $('#dashboard-toggle').addEventListener('click', (e) => {
     e.stopPropagation();
-    const menu = $('.dropdown-menu');
-    menu.style.opacity = menu.style.opacity === '1' ? '0' : '1';
-    menu.style.visibility = menu.style.visibility === 'visible' ? 'hidden' : 'visible';
+    $('.dropdown').classList.toggle('active');
   });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.dropdown')) {
+      $('.dropdown').classList.remove('active');
+    }
+  });
+
   initChat();
   initCommandPalette();
   initSettings();
   initExcelImport();
+
   const currentPeriod = getCurrentPeriod();
-  if (currentPeriod) {
-    switchView('period' + currentPeriod);
-  }
-  document.addEventListener('click', (e) => {
-    if (!e.target.closest('.dropdown')) {
-      const menu = $('.dropdown-menu');
-      if (menu) {
-        menu.style.opacity = '0';
-        menu.style.visibility = 'hidden';
-      }
-    }
-  });
+  if (currentPeriod) switchView('period' + currentPeriod);
+
   document.addEventListener('mousemove', (e) => {
     const magnetic = e.target.closest('.magnetic');
     if (magnetic) {
@@ -938,12 +1058,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       magnetic.style.transform = `translate(${x * 0.1}px, ${y * 0.1}px)`;
     }
   });
+
   document.addEventListener('mouseleave', (e) => {
     const magnetic = e.target.closest('.magnetic');
-    if (magnetic) {
-      magnetic.style.transform = 'translate(0, 0)';
-    }
+    if (magnetic) magnetic.style.transform = 'translate(0, 0)';
   });
+
   document.addEventListener('mouseover', (e) => {
     const card = e.target.closest('.student-card, .card');
     if (card) {
